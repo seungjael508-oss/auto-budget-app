@@ -83,9 +83,12 @@ serve(async (req: Request) => {
   for (const tx of txList) {
     const hint = hintMap.get(tx.merchant)
     if (hint) {
+      // 힌트 기반 분류: AUTO_APPROVE_THRESHOLD(0.95)보다 높은 0.97로 고신뢰 자동 승인
+      // ai_category는 null (Claude 미호출, 힌트 학습 결과 적용)
       updates.push({
         id: tx.id,
         category_id: hint.category_id,
+        ai_category: undefined,  // 힌트 적용 = AI 미사용, 명시적 null
         confidence: 0.97,
         status: 'auto_approved',
       })
@@ -124,33 +127,37 @@ JSON 배열로만 응답해. 다른 텍스트 포함 금지.
       console.error('Claude 분류 실패, pending_review 유지:', e)
     }
 
-    // 카테고리 이름 → DB ID 변환
-    const { data: cats } = await supabase
-      .from('categories')
-      .select('id, name')
-      .eq('is_system', true)
-    const catMap = new Map((cats ?? []).map(c => [c.name, c.id]))
+    // Claude 성공 시에만 categories 조회 + updates 추가 (Claude 실패 = aiResults 빈 배열)
+    if (aiResults.length > 0) {
+      const { data: cats } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('is_system', true)
+      const catMap = new Map((cats ?? []).map(c => [c.name, c.id]))
 
-    for (const r of aiResults) {
-      updates.push({
-        id: r.id,
-        category_id: catMap.get(r.category) ?? null,
-        ai_category: r.category,
-        confidence: r.confidence,
-        status: r.confidence >= AUTO_APPROVE_THRESHOLD ? 'auto_approved' : 'pending_review',
-      })
+      for (const r of aiResults) {
+        updates.push({
+          id: r.id,
+          category_id: catMap.get(r.category) ?? null,
+          ai_category: r.category,
+          confidence: r.confidence,
+          status: r.confidence >= AUTO_APPROVE_THRESHOLD ? 'auto_approved' : 'pending_review',
+        })
+      }
     }
   }
 
-  // 4. 거래 상태 일괄 업데이트
-  for (const u of updates) {
-    await supabase.from('transactions').update({
-      category_id: u.category_id,
-      ai_category: u.ai_category ?? null,
-      confidence: u.confidence,
-      status: u.status,
-    }).eq('id', u.id)
-  }
+  // 4. 거래 상태 병렬 업데이트 (직렬 루프 대신 Promise.all로 DB 왕복 최소화)
+  await Promise.all(
+    updates.map(u =>
+      supabase.from('transactions').update({
+        category_id: u.category_id,
+        ai_category: u.ai_category ?? null,
+        confidence: u.confidence,
+        status: u.status,
+      }).eq('id', u.id)
+    )
+  )
 
   // 5. auto_approved → monthly_summary 갱신 (fire-and-forget)
   const approvedIds = updates.filter(u => u.status === 'auto_approved').map(u => u.id)
