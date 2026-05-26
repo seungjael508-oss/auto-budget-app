@@ -29,13 +29,24 @@ const CARD_PATTERNS = [
 
 const GENERIC_AMOUNT_REGEX = /([\d,]+)원/
 
+// 유효한 source 값 (runtime 검증용)
+const VALID_SOURCES = ['share_intent', 'paste', 'notification'] as const
+
+// JSON 응답 헬퍼 (Content-Type 항상 포함)
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 function parseAmountStr(val: string): number {
   return parseInt(val.replace(/,/g, ''), 10)
 }
 
 function buildDate(month: string, day: string, hour: string, minute: string): Date {
   const now = new Date()
-  return new Date(now.getFullYear(), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute))
+  return new Date(now.getFullYear(), parseInt(month, 10) - 1, parseInt(day, 10), parseInt(hour, 10), parseInt(minute, 10))
 }
 
 function parseText(text: string): ParsedTransaction | null {
@@ -70,6 +81,15 @@ function parseText(text: string): ParsedTransaction | null {
 
 serve(async (req: Request) => {
   const { text, userId, source }: RequestBody = await req.json()
+
+  // 필수 파라미터 및 source 유효성 검증 (TypeScript 타입은 런타임에 강제되지 않음)
+  if (!text || !userId) {
+    return jsonResponse({ ok: false, error: '필수 파라미터 누락: text, userId' }, 400)
+  }
+  if (!VALID_SOURCES.includes(source)) {
+    return jsonResponse({ ok: false, error: `유효하지 않은 source: ${source}` }, 400)
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
   // 1. raw_data에 원본 텍스트 저장 (파싱 전 보존)
@@ -85,10 +105,7 @@ serve(async (req: Request) => {
     .single()
 
   if (rawError) {
-    return new Response(
-      JSON.stringify({ ok: false, error: `raw_data 저장 실패: ${rawError.message}` }),
-      { status: 500 }
-    )
+    return jsonResponse({ ok: false, error: `raw_data 저장 실패: ${rawError.message}` }, 500)
   }
 
   // 2. 텍스트 파싱
@@ -99,7 +116,7 @@ serve(async (req: Request) => {
       status: 'failed',
       error_message: '거래 정보를 찾을 수 없습니다',
     }).eq('id', rawData.id)
-    return new Response(JSON.stringify({ ok: false, error: 'no transaction found' }), { status: 422 })
+    return jsonResponse({ ok: false, error: 'no transaction found' }, 422)
   }
 
   // 3. dedup_key 생성 + transaction insert
@@ -136,8 +153,5 @@ serve(async (req: Request) => {
     })
   }
 
-  return new Response(
-    JSON.stringify({ ok: !txError, confidence: parsed.confidence, needsAiAssist: parsed.needsAiAssist }),
-    { headers: { 'Content-Type': 'application/json' } }
-  )
+  return jsonResponse({ ok: !txError, confidence: parsed.confidence, needsAiAssist: parsed.needsAiAssist })
 })
