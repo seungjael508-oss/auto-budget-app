@@ -50,7 +50,11 @@ serve(async (req: Request) => {
     .single()
 
   if (rawError) {
-    return new Response(JSON.stringify({ ok: false, error: 'raw_data not found' }), { status: 404 })
+    // raw_data 조회 자체가 실패한 경우 — 상태 업데이트 불가이므로 에러 메시지만 반환
+    return new Response(
+      JSON.stringify({ ok: false, error: `raw_data 조회 실패: ${rawError.message}` }),
+      { status: 404 }
+    )
   }
 
   // 2. bank_parsers에서 은행별 설정 조회
@@ -112,14 +116,16 @@ serve(async (req: Request) => {
     // TODO: date_format 컬럼 기반 파싱 구현 필요 (현재는 runtime 기본 파서 사용)
     // 국민은행 'yyyy.MM.dd HH:mm:ss' 등 비표준 포맷은 Invalid Date 가능성 있음
     const txAt = new Date(row[config.date_col])
-    const dedupKey = await generateDedupKey({ userId, amount, merchant, transactionAt: txAt })
+    // Invalid Date 방어: 날짜 파싱 실패 시 현재 시각으로 fallback (데이터 보존 우선)
+    const safeTxAt = isNaN(txAt.getTime()) ? new Date() : txAt
+    const dedupKey = await generateDedupKey({ userId, amount, merchant, transactionAt: safeTxAt })
 
     transactionsToInsert.push({
       user_id: userId,
       raw_data_id: rawDataId,
       amount,
       merchant,
-      transaction_at: txAt.toISOString(),
+      transaction_at: safeTxAt.toISOString(),
       source: 'csv',
       status: 'pending_review',
       dedup_key: dedupKey,
