@@ -16,6 +16,17 @@ interface BankCsvConfig {
   merchant_col: string
 }
 
+interface TransactionInsert {
+  user_id: string
+  raw_data_id: string
+  amount: number
+  merchant: string
+  transaction_at: string
+  source: string
+  status: string
+  dedup_key: string
+}
+
 interface RequestBody {
   rawDataId: string
   bankCode: string
@@ -43,18 +54,21 @@ serve(async (req: Request) => {
   }
 
   // 2. bank_parsers에서 은행별 설정 조회
-  const { data: bankParser } = await supabase
+  const { data: bankParser, error: bankParserError } = await supabase
     .from('bank_parsers')
     .select('csv_config')
     .eq('bank_code', bankCode)
     .single()
 
-  if (!bankParser) {
+  if (bankParserError || !bankParser) {
+    const errorMsg = bankParserError
+      ? `bank_parsers 조회 실패: ${bankParserError.message}`
+      : `지원하지 않는 은행 코드: ${bankCode}`
     await supabase.from('raw_data').update({
       status: 'failed',
-      error_message: `지원하지 않는 은행 코드: ${bankCode}`,
+      error_message: errorMsg,
     }).eq('id', rawDataId)
-    return new Response(JSON.stringify({ ok: false, error: 'unknown bank' }), { status: 400 })
+    return new Response(JSON.stringify({ ok: false, error: errorMsg }), { status: 400 })
   }
 
   const config = bankParser.csv_config as BankCsvConfig
@@ -71,13 +85,22 @@ serve(async (req: Request) => {
     }
   }
 
+  // CSV 텍스트가 없으면 raw_data 실패 처리 후 종료
+  if (!csvText.trim()) {
+    await supabase.from('raw_data').update({
+      status: 'failed',
+      error_message: 'CSV 텍스트를 읽을 수 없습니다 (raw_content와 file_path 모두 없음)',
+    }).eq('id', rawDataId)
+    return new Response(JSON.stringify({ ok: false, error: 'empty csv' }), { status: 422 })
+  }
+
   // 4. CSV 파싱 → Transaction 객체 목록 생성
   const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,
   })
 
-  const transactionsToInsert = []
+  const transactionsToInsert: TransactionInsert[] = []
   for (const row of parsed.data) {
     const outAmt = parseAmountStr(row[config.amount_col])
     // income_col이 null이면 입금 없는 카드사 (삼성/현대)
@@ -86,6 +109,8 @@ serve(async (req: Request) => {
     if (amount === 0) continue  // 잔액조회 등 비거래 행 제외
 
     const merchant = (row[config.merchant_col] ?? '').trim()
+    // TODO: date_format 컬럼 기반 파싱 구현 필요 (현재는 runtime 기본 파서 사용)
+    // 국민은행 'yyyy.MM.dd HH:mm:ss' 등 비표준 포맷은 Invalid Date 가능성 있음
     const txAt = new Date(row[config.date_col])
     const dedupKey = await generateDedupKey({ userId, amount, merchant, transactionAt: txAt })
 
