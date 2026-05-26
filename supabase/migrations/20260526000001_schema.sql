@@ -13,13 +13,15 @@ CREATE TABLE raw_data (
 
 -- categories: 시스템 기본값 + 사용자 커스텀
 CREATE TABLE categories (
-  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id   UUID REFERENCES auth.users(id) ON DELETE CASCADE,  -- NULL = 시스템 기본값
-  name      TEXT NOT NULL,
-  icon      TEXT NOT NULL DEFAULT '💰',
-  color     TEXT NOT NULL DEFAULT '#6B7280',
-  parent_id UUID REFERENCES categories(id),
-  is_system BOOLEAN NOT NULL DEFAULT FALSE
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID REFERENCES auth.users(id) ON DELETE CASCADE,  -- NULL = 시스템 기본값
+  name       TEXT NOT NULL,
+  icon       TEXT NOT NULL DEFAULT '💰',
+  color      TEXT NOT NULL DEFAULT '#6B7280',
+  parent_id  UUID REFERENCES categories(id),
+  is_system  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- bank_parsers: 은행별 CSV 파서 설정
@@ -34,7 +36,7 @@ CREATE TABLE bank_parsers (
 CREATE TABLE transactions (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id        UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  raw_data_id    UUID REFERENCES raw_data(id),
+  raw_data_id    UUID REFERENCES raw_data(id) ON DELETE SET NULL,
   amount         NUMERIC(12,2) NOT NULL,
   merchant       TEXT NOT NULL,
   category_id    UUID REFERENCES categories(id),
@@ -71,6 +73,7 @@ CREATE TABLE budgets (
   year        INT NOT NULL,
   month       INT NOT NULL CHECK (month >= 1 AND month <= 12),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, category_id, year, month)
 );
 
@@ -86,6 +89,7 @@ CREATE TABLE goals (
   month         INT NOT NULL CHECK (month >= 1 AND month <= 12),
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, category_id, year, month)
 );
 
@@ -114,6 +118,22 @@ CREATE TRIGGER transactions_updated_at
 
 CREATE TRIGGER hints_updated_at
   BEFORE UPDATE ON user_category_hints
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER monthly_summary_updated_at
+  BEFORE UPDATE ON monthly_summary
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER budgets_updated_at
+  BEFORE UPDATE ON budgets
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER goals_updated_at
+  BEFORE UPDATE ON goals
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER categories_updated_at
+  BEFORE UPDATE ON categories
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 조회 성능 인덱스
