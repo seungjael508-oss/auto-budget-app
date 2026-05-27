@@ -1,14 +1,26 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Modal, ActivityIndicator, Alert,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native'
 import { Swipeable } from 'react-native-gesture-handler'
 import { useTransactions } from '../hooks/useTransactions'
-import { Transaction, Category } from '../types'
-import CategoryBadge from '../components/CategoryBadge'
+import { Category, Transaction } from '../types'
+import { colors, fontSize, fontWeight, radius, spacing } from '../theme'
+import { formatDateTime, formatKRW } from '../lib/format'
+import Card from '../components/ui/Card'
+import CategoryTag from '../components/ui/CategoryTag'
+import PrimaryButton, { SecondaryButton } from '../components/ui/PrimaryButton'
+import ProgressBar from '../components/ui/ProgressBar'
+import Screen from '../components/ui/Screen'
+import TopBar from '../components/ui/TopBar'
 
-// 카테고리 선택 모달
 function CategoryModal({
   visible,
   categories,
@@ -21,117 +33,101 @@ function CategoryModal({
   onClose: () => void
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalBox}>
-          <Text style={styles.modalTitle}>카테고리 선택</Text>
-          {categories.map(cat => (
-            <TouchableOpacity
-              key={cat.id}
-              style={styles.modalItem}
-              onPress={() => onSelect(cat.id)}
-            >
-              <CategoryBadge name={cat.name} icon={cat.icon} color={cat.color} />
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.modalClose} onPress={onClose}>
-            <Text style={styles.modalCloseText}>취소</Text>
-          </TouchableOpacity>
+          <Text style={styles.modalTitle}>카테고리 확인</Text>
+          <View style={styles.categoryGrid}>
+            {categories.map(cat => (
+              <Pressable key={cat.id} style={styles.categoryButton} onPress={() => onSelect(cat.id)}>
+                <CategoryTag name={cat.name} icon={cat.icon} color={cat.color} />
+              </Pressable>
+            ))}
+          </View>
+          <SecondaryButton label="닫기" onPress={onClose} size="md" />
         </View>
       </View>
     </Modal>
   )
 }
 
-// 스와이프 액션 버튼 (오른쪽 끝에 나타나는 녹색 "승인")
-function RightAction({ onPress }: { onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.actionApprove} onPress={onPress}>
-      <Text style={styles.actionText}>✅{'\n'}승인</Text>
-    </TouchableOpacity>
-  )
-}
-
-// 스와이프 액션 버튼 (왼쪽 끝에 나타나는 주황색 "분류")
-function LeftAction({ onPress }: { onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.actionClassify} onPress={onPress}>
-      <Text style={styles.actionText}>✏️{'\n'}분류 수정</Text>
-    </TouchableOpacity>
-  )
-}
-
-// 검수 대기 거래 카드
 function ReviewCard({
   transaction,
-  categories,
+  category,
   onApprove,
   onChangeCategory,
 }: {
   transaction: Transaction
-  categories: Category[]
+  category?: Category
   onApprove: () => void
   onChangeCategory: () => void
 }) {
-  const category = categories.find(c => c.id === transaction.category_id)
-  const dateStr = new Date(transaction.transaction_at).toLocaleDateString('ko-KR', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-  const confidencePct = transaction.confidence != null
-    ? Math.round(transaction.confidence * 100) + '%'
-    : '?'
+  const confidencePct = transaction.confidence != null ? Math.round(transaction.confidence * 100) : null
 
   return (
     <Swipeable
-      renderRightActions={() => <RightAction onPress={onApprove} />}
-      renderLeftActions={() => <LeftAction onPress={onChangeCategory} />}
+      renderRightActions={() => (
+        <Pressable style={styles.swipeApprove} onPress={onApprove}>
+          <Text style={styles.swipeText}>승인</Text>
+        </Pressable>
+      )}
+      renderLeftActions={() => (
+        <Pressable style={styles.swipeEdit} onPress={onChangeCategory}>
+          <Text style={styles.swipeText}>분류</Text>
+        </Pressable>
+      )}
     >
-      <View style={styles.card}>
-        <View style={styles.cardLeft}>
-          <Text style={styles.merchant}>{transaction.merchant}</Text>
-          <Text style={styles.date}>{dateStr}</Text>
-          {category && (
-            <CategoryBadge name={category.name} icon={category.icon} color={category.color} />
-          )}
+      <Card style={styles.reviewItem}>
+        <View style={styles.rowBetween}>
+          <View style={styles.flex}>
+            <Text style={styles.merchant}>{transaction.merchant}</Text>
+            <Text style={styles.muted}>{formatDateTime(transaction.transaction_at)} · {transaction.source}</Text>
+          </View>
+          <Text style={styles.amount}>-{formatKRW(Math.abs(transaction.amount))}원</Text>
         </View>
-        <View style={styles.cardRight}>
-          <Text style={[styles.amount, transaction.amount < 0 ? styles.expense : styles.income]}>
-            {transaction.amount < 0 ? '-' : '+'}{Math.abs(transaction.amount).toLocaleString()}원
-          </Text>
-          <Text style={styles.confidence}>신뢰도 {confidencePct}</Text>
+        <View style={styles.reviewMeta}>
+          <CategoryTag name={category?.name ?? transaction.ai_category} icon={category?.icon} color={category?.color} />
+          <Text style={styles.confidence}>신뢰도 {confidencePct ?? '?'}%</Text>
         </View>
-      </View>
+        <View style={styles.reviewActions}>
+          <SecondaryButton label="분류 수정" onPress={onChangeCategory} size="md" style={styles.actionButton} />
+          <PrimaryButton label="맞아요, 승인" onPress={onApprove} size="md" style={styles.actionButton} />
+        </View>
+      </Card>
     </Swipeable>
   )
 }
 
 export default function ReviewScreen() {
   const {
-    transactions, categories, loading,
-    approveTransaction, changeCategory, approveAllHighConfidence, refresh,
+    transactions,
+    categories,
+    loading,
+    approveTransaction,
+    changeCategory,
+    approveAllHighConfidence,
+    refresh,
   } = useTransactions()
-
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
   const [processing, setProcessing] = useState(false)
 
-  // 검수 대기 목록만 표시
-  const pendingTxs = transactions.filter(t => t.status === 'pending_review')
+  const pendingTxs = useMemo(
+    () => transactions.filter(item => item.status === 'pending_review'),
+    [transactions],
+  )
+  const highConfidenceCount = pendingTxs.filter(item => (item.confidence ?? 0) >= 0.8).length
+  const total = pendingTxs.reduce((sum, item) => sum + Math.abs(item.amount), 0)
 
   const handleApprove = async (tx: Transaction) => {
     setProcessing(true)
     try {
       await approveTransaction(tx.id)
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '승인 처리 중 오류가 발생했습니다')
     } finally {
       setProcessing(false)
     }
-  }
-
-  const handleOpenCategoryModal = (tx: Transaction) => {
-    setSelectedTx(tx)
-    setModalVisible(true)
   }
 
   const handleSelectCategory = async (catId: string) => {
@@ -140,7 +136,7 @@ export default function ReviewScreen() {
     setProcessing(true)
     try {
       await changeCategory(selectedTx.id, selectedTx.merchant, catId)
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '카테고리 변경 중 오류가 발생했습니다')
     } finally {
       setProcessing(false)
@@ -149,129 +145,243 @@ export default function ReviewScreen() {
   }
 
   const handleApproveAll = async () => {
-    const count = pendingTxs.filter(t => (t.confidence ?? 0) >= 0.80).length
-    if (count === 0) {
-      Alert.alert('알림', 'confidence 80% 이상인 거래가 없습니다')
+    if (highConfidenceCount === 0) {
+      Alert.alert('알림', '신뢰도 80% 이상인 거래가 없습니다')
       return
     }
-    Alert.alert(
-      '전체 승인',
-      `confidence 80% 이상 ${count}건을 승인하시겠어요?`,
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '승인', onPress: async () => {
-            setProcessing(true)
-            try {
-              await approveAllHighConfidence()
-            } finally {
-              setProcessing(false)
-            }
+
+    Alert.alert('한 번에 승인', `신뢰도 80% 이상 ${highConfidenceCount}건을 승인할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '승인',
+        onPress: async () => {
+          setProcessing(true)
+          try {
+            await approveAllHighConfidence()
+          } finally {
+            setProcessing(false)
           }
         },
-      ]
-    )
+      },
+    ])
   }
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#3B82F6" /></View>
-  }
-
-  if (pendingTxs.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>✅ 검수할 거래가 없습니다</Text>
-        <Text style={styles.emptyHint}>모든 거래가 처리되었습니다</Text>
-      </View>
-    )
+    return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>
   }
 
   return (
-    <View style={styles.container}>
-      {/* 상단 배치 승인 버튼 */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>검수 대기 {pendingTxs.length}건</Text>
-        <TouchableOpacity
-          style={styles.batchBtn}
-          onPress={handleApproveAll}
-          disabled={processing}
-        >
-          <Text style={styles.batchBtnText}>confidence 80%+ 전체 승인</Text>
-        </TouchableOpacity>
-      </View>
+    <>
+      <TopBar title="주간 검수" subtitle="애매한 거래만 빠르게 확인" />
+      <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />} contentStyle={styles.content}>
+        <Card variant="soft" style={styles.summaryCard}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.muted}>검수 대기</Text>
+            <Text style={styles.summaryMeta}>{pendingTxs.length}건</Text>
+          </View>
+          <View style={styles.totalLine}>
+            <Text style={styles.totalAmount}>{formatKRW(total)}</Text>
+            <Text style={styles.muted}>원 확인 필요</Text>
+          </View>
+          <View style={styles.progressWrap}>
+            <ProgressBar value={pendingTxs.length === 0 ? 100 : 0} tone={pendingTxs.length === 0 ? 'success' : 'primary'} />
+          </View>
+        </Card>
 
-      {processing && (
-        <View style={styles.processingBar}>
-          <Text style={styles.processingText}>처리 중...</Text>
-        </View>
-      )}
+        {pendingTxs.length > 0 ? (
+          <View style={styles.batchWrap}>
+            <SecondaryButton
+              label={`신뢰도 80%+ ${highConfidenceCount}건 한 번에 승인`}
+              onPress={handleApproveAll}
+              size="md"
+              disabled={processing}
+            />
+          </View>
+        ) : null}
 
-      <FlatList
-        data={pendingTxs}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <ReviewCard
-            transaction={item}
-            categories={categories}
-            onApprove={() => handleApprove(item)}
-            onChangeCategory={() => handleOpenCategoryModal(item)}
-          />
+        {processing ? <Text style={styles.processing}>처리 중...</Text> : null}
+
+        {pendingTxs.length === 0 ? (
+          <Card style={styles.doneCard}>
+            <Text style={styles.doneIcon}>완료</Text>
+            <Text style={styles.doneTitle}>이번 주 검수 끝!</Text>
+            <Text style={styles.muted}>다음 주 일요일에 다시 찾아올게요.</Text>
+          </Card>
+        ) : (
+          pendingTxs.map(tx => {
+            const category = categories.find(item => item.id === tx.category_id)
+            return (
+              <ReviewCard
+                key={tx.id}
+                transaction={tx}
+                category={category}
+                onApprove={() => handleApprove(tx)}
+                onChangeCategory={() => {
+                  setSelectedTx(tx)
+                  setModalVisible(true)
+                }}
+              />
+            )
+          })
         )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        onRefresh={refresh}
-        refreshing={loading}
-      />
 
-      <CategoryModal
-        visible={modalVisible}
-        categories={categories.filter(c => c.is_system)}
-        onSelect={handleSelectCategory}
-        onClose={() => { setModalVisible(false); setSelectedTx(null) }}
-      />
-    </View>
+        <CategoryModal
+          visible={modalVisible}
+          categories={categories.filter(item => item.is_system)}
+          onSelect={handleSelectCategory}
+          onClose={() => {
+            setModalVisible(false)
+            setSelectedTx(null)
+          }}
+        />
+      </Screen>
+    </>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f8f8' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyText: { fontSize: 18, color: '#10B981', marginBottom: 8 },
-  emptyHint: { fontSize: 14, color: '#9CA3AF' },
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee',
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
-  headerText: { fontSize: 15, fontWeight: '600', color: '#111' },
-  batchBtn: { backgroundColor: '#10B981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  batchBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  processingBar: { backgroundColor: '#FEF3C7', padding: 8, alignItems: 'center' },
-  processingText: { color: '#92400E', fontSize: 13 },
-  card: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#fff', padding: 16, gap: 12,
+  content: {
+    gap: spacing.md,
   },
-  cardLeft: { flex: 1, gap: 4 },
-  cardRight: { alignItems: 'flex-end', gap: 4 },
-  merchant: { fontSize: 15, fontWeight: '600', color: '#111' },
-  date: { fontSize: 12, color: '#9CA3AF' },
-  amount: { fontSize: 16, fontWeight: '700' },
-  expense: { color: '#EF4444' },
-  income: { color: '#10B981' },
-  confidence: { fontSize: 11, color: '#9CA3AF' },
-  separator: { height: 1, backgroundColor: '#f0f0f0' },
-  actionApprove: {
-    backgroundColor: '#10B981', justifyContent: 'center', alignItems: 'center',
-    width: 72, paddingHorizontal: 8,
+  summaryCard: {
+    marginBottom: spacing.xs,
   },
-  actionClassify: {
-    backgroundColor: '#F59E0B', justifyContent: 'center', alignItems: 'center',
-    width: 80, paddingHorizontal: 8,
+  rowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
-  actionText: { color: '#fff', fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalBox: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
-  modalTitle: { fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
-  modalItem: { paddingVertical: 10, paddingHorizontal: 4 },
-  modalClose: { marginTop: 12, padding: 12, alignItems: 'center' },
-  modalCloseText: { color: '#9CA3AF', fontSize: 15 },
+  flex: {
+    flex: 1,
+  },
+  muted: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+    color: colors.muted,
+  },
+  summaryMeta: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  totalLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  totalAmount: {
+    fontSize: 26,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  progressWrap: {
+    marginTop: spacing.md,
+  },
+  batchWrap: {
+    marginBottom: spacing.xs,
+  },
+  processing: {
+    textAlign: 'center',
+    color: colors.warning,
+    fontSize: fontSize.sm,
+  },
+  reviewItem: {
+    gap: spacing.md,
+  },
+  merchant: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  amount: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  reviewMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  confidence: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
+  },
+  reviewActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  actionButton: {
+    flex: 1,
+  },
+  swipeApprove: {
+    width: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: spacing.xs,
+    borderRadius: radius.lg,
+    backgroundColor: colors.success,
+  },
+  swipeEdit: {
+    width: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: spacing.xs,
+    borderRadius: radius.lg,
+    backgroundColor: colors.warning,
+  },
+  swipeText: {
+    color: colors.white,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+  },
+  doneCard: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxxl,
+    gap: spacing.sm,
+  },
+  doneIcon: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    color: colors.success,
+  },
+  doneTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(17, 24, 39, 0.28)',
+  },
+  modalBox: {
+    padding: spacing.xl,
+    gap: spacing.md,
+    borderTopLeftRadius: radius.xxl,
+    borderTopRightRadius: radius.xxl,
+    backgroundColor: colors.surface,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  categoryButton: {
+    paddingVertical: spacing.xs,
+  },
 })

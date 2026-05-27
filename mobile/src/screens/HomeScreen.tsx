@@ -1,12 +1,25 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, ScrollView,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native'
-import DocumentPicker from 'react-native-document-picker'
+import { useNavigation } from '@react-navigation/native'
+import { errorCodes, isErrorWithCode, pick, types } from '@react-native-documents/picker'
 import { supabase } from '../lib/supabase'
+import { useDashboard } from '../hooks/useDashboard'
+import { useTransactions } from '../hooks/useTransactions'
+import { colors, fontSize, fontWeight, radius, spacing } from '../theme'
+import { formatKRW } from '../lib/format'
+import Card from '../components/ui/Card'
+import ProgressBar from '../components/ui/ProgressBar'
+import Screen from '../components/ui/Screen'
+import SectionHeader from '../components/ui/SectionHeader'
+import TopBar from '../components/ui/TopBar'
 
-// 지원 은행 목록 — bank_parsers 테이블의 bank_code와 일치
 const BANKS = [
   { label: '국민은행', code: 'kb' },
   { label: '신한은행', code: 'shinhan' },
@@ -15,17 +28,32 @@ const BANKS = [
 ]
 
 export default function HomeScreen() {
-  const [uploading, setUploading] = useState(false)
+  const navigation = useNavigation<any>()
+  const now = new Date()
   const [selectedBank, setSelectedBank] = useState(BANKS[0].code)
+  const [uploading, setUploading] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
+  const { pendingCount } = useTransactions()
+  const { totalExpense, budgets, goals } = useDashboard(now.getFullYear(), now.getMonth() + 1)
+
+  const monthBudget = useMemo(
+    () => budgets.reduce((sum, item) => sum + item.amount, 0) || 1_500_000,
+    [budgets],
+  )
+  const burnRate = Math.min((totalExpense / monthBudget) * 100, 100)
+  const remaining = Math.max(monthBudget - totalExpense, 0)
+  const todayLabel = now.toLocaleDateString('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  })
 
   const uploadCsv = async () => {
     let pickerResult
     try {
-      // CSV 파일 선택 (allFiles: 일부 Android에서 CSV MIME 인식 안 될 수 있음)
-      pickerResult = await DocumentPicker.pick({ type: [DocumentPicker.types.allFiles] })
+      pickerResult = await pick({ type: [types.allFiles] })
     } catch (e) {
-      if (DocumentPicker.isCancel(e)) return  // 사용자가 취소
+      if (isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED) return
       throw e
     }
 
@@ -35,11 +63,8 @@ export default function HomeScreen() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('로그인이 필요합니다')
 
-      // 1. 파일 blob 생성 (EUC-KR 인코딩은 Edge Function이 처리)
       const response = await fetch(file.uri)
       const blob = await response.blob()
-
-      // 2. Supabase Storage 업로드
       const storagePath = `${user.id}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage
         .from('uploads')
@@ -47,7 +72,6 @@ export default function HomeScreen() {
 
       if (uploadError) throw uploadError
 
-      // 3. raw_data 레코드 생성
       const { data: rawData, error: rawError } = await supabase
         .from('raw_data')
         .insert({
@@ -61,7 +85,6 @@ export default function HomeScreen() {
 
       if (rawError) throw rawError
 
-      // 4. parse-csv Edge Function 호출
       const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-csv', {
         body: {
           rawDataId: rawData.id,
@@ -71,7 +94,6 @@ export default function HomeScreen() {
       })
 
       if (parseError) throw parseError
-
       setLastResult(`완료: ${(parseResult as { inserted?: number }).inserted ?? 0}건 처리됨`)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '업로드 실패'
@@ -82,63 +104,255 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.sectionTitle}>CSV 업로드</Text>
+    <>
+      <TopBar title="자동화가계부" subtitle="사진만 찍고, 주 1회 확인하면 끝" rightLabel="알림" onRightPress={() => {}} />
+      <Screen>
+        <View style={styles.greeting}>
+          <Text style={styles.date}>{todayLabel}</Text>
+          <Text style={styles.headline}>이번 주도 잘 흘러가고 있어요</Text>
+          <Text style={styles.subcopy}>검수할 것만 모아둘게요. 일요일에 한 번만 확인하세요.</Text>
+        </View>
 
-      {/* 은행 선택 */}
-      <Text style={styles.label}>은행/카드사 선택</Text>
-      <View style={styles.bankRow}>
-        {BANKS.map(bank => (
-          <TouchableOpacity
-            key={bank.code}
-            style={[styles.bankBtn, selectedBank === bank.code && styles.bankBtnSelected]}
-            onPress={() => setSelectedBank(bank.code)}
-          >
-            <Text style={[styles.bankBtnText, selectedBank === bank.code && styles.bankBtnTextSelected]}>
-              {bank.label}
-            </Text>
-          </TouchableOpacity>
+        <Card style={styles.monthCard}>
+          <Text style={styles.cardLabel}>이번 달 지출</Text>
+          <View style={styles.amountLine}>
+            <Text style={styles.heroAmount}>{formatKRW(totalExpense)}</Text>
+            <Text style={styles.won}>원</Text>
+          </View>
+          <Text style={styles.muted}>예산 {formatKRW(monthBudget)}원 중 {Math.round(burnRate)}% 사용</Text>
+          <View style={styles.progressGap}>
+            <ProgressBar value={burnRate} tone={burnRate > 90 ? 'danger' : burnRate > 75 ? 'warning' : 'primary'} thickness={10} />
+          </View>
+          <View style={styles.rowBetween}>
+            <Text style={styles.muted}>남은 예산</Text>
+            <Text style={styles.successText}>{formatKRW(remaining)}원</Text>
+          </View>
+        </Card>
+
+        <Card variant="primary" style={styles.reviewCard} onPress={() => navigation.navigate('검수')}>
+          <View style={styles.rowBetween}>
+            <View>
+              <Text style={styles.primaryLabel}>이번 주 검수 대기</Text>
+              <Text style={styles.primaryCount}>{pendingCount}건</Text>
+              <Text style={styles.primaryHint}>3분이면 끝나요</Text>
+            </View>
+            <View style={styles.circle}>
+              <Text style={styles.circleText}>→</Text>
+            </View>
+          </View>
+        </Card>
+
+        <SectionHeader title="자동 수집" />
+        <View style={styles.quickGrid}>
+          <Card style={styles.quickCard} onPress={() => Alert.alert('준비 중', 'OCR 촬영은 다음 단계에서 연결합니다')}>
+            <Text style={styles.quickIcon}>📷</Text>
+            <Text style={styles.quickTitle}>영수증 찍기</Text>
+            <Text style={styles.quickDesc}>OCR 자동 분류</Text>
+          </Card>
+          <Card style={styles.quickCard} onPress={uploadCsv}>
+            {uploading ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.quickIcon}>📄</Text>}
+            <Text style={styles.quickTitle}>CSV 업로드</Text>
+            <Text style={styles.quickDesc}>카드 내역 불러오기</Text>
+          </Card>
+        </View>
+
+        <Text style={styles.label}>은행/카드사 선택</Text>
+        <View style={styles.bankRow}>
+          {BANKS.map(bank => (
+            <Pressable
+              key={bank.code}
+              style={[styles.bankChip, selectedBank === bank.code && styles.bankChipActive]}
+              onPress={() => setSelectedBank(bank.code)}
+            >
+              <Text style={[styles.bankText, selectedBank === bank.code && styles.bankTextActive]}>{bank.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {lastResult ? <Text style={styles.result}>{lastResult}</Text> : null}
+
+        <SectionHeader title="내 목표" actionLabel="전체 보기" onActionPress={() => navigation.navigate('목표')} />
+        {goals.slice(0, 2).map(goal => (
+          <Card key={goal.id} style={styles.goalCard}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.goalTitle}>{goal.title}</Text>
+              <Text style={styles.goalMeta}>{goal.period === 'weekly' ? '주간' : '월간'}</Text>
+            </View>
+            <View style={styles.progressGap}>
+              <ProgressBar value={0} tone="accent" current={`0원`} total={`${formatKRW(goal.target_amount)}원`} />
+            </View>
+          </Card>
         ))}
-      </View>
-
-      {/* 업로드 버튼 */}
-      <TouchableOpacity style={styles.uploadBtn} onPress={uploadCsv} disabled={uploading}>
-        {uploading
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={styles.uploadBtnText}>📁 CSV 파일 선택 및 업로드</Text>
-        }
-      </TouchableOpacity>
-
-      {lastResult && (
-        <Text style={styles.result}>✅ {lastResult}</Text>
-      )}
-
-      <Text style={styles.hint}>
-        업로드 후 AI 분류가 자동으로 진행됩니다.{'\n'}
-        confidence {'<'} 0.95인 거래는 "검수" 탭에서 확인하세요.
-      </Text>
-    </ScrollView>
+        {goals.length === 0 ? (
+          <Card style={styles.goalCard}>
+            <Text style={styles.goalTitle}>첫 목표를 만들어보세요</Text>
+            <Text style={styles.muted}>올리브영 세트, 여행, 운동 같은 생활 목표가 좋아요.</Text>
+          </Card>
+        ) : null}
+      </Screen>
+    </>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 20 },
-  sectionTitle: { fontSize: 20, fontWeight: '700', marginBottom: 16, color: '#111' },
-  label: { fontSize: 14, color: '#666', marginBottom: 8 },
-  bankRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  bankBtn: {
-    paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 6, borderWidth: 1, borderColor: '#ddd',
+  greeting: {
+    marginBottom: spacing.xl,
   },
-  bankBtnSelected: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
-  bankBtnText: { fontSize: 14, color: '#444' },
-  bankBtnTextSelected: { color: '#fff' },
-  uploadBtn: {
-    backgroundColor: '#3B82F6', borderRadius: 8, padding: 14,
-    alignItems: 'center', marginBottom: 16,
+  date: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
   },
-  uploadBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  result: { color: '#10B981', fontSize: 14, marginBottom: 12 },
-  hint: { fontSize: 13, color: '#9CA3AF', lineHeight: 20 },
+  headline: {
+    marginTop: spacing.xs,
+    fontSize: 22,
+    lineHeight: 29,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  subcopy: {
+    marginTop: spacing.xs,
+    fontSize: fontSize.md,
+    lineHeight: 21,
+    color: colors.muted,
+  },
+  monthCard: {
+    marginBottom: spacing.md,
+  },
+  cardLabel: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
+  },
+  amountLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  heroAmount: {
+    fontSize: 34,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  won: {
+    fontSize: fontSize.md,
+    color: colors.muted,
+  },
+  muted: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+    color: colors.muted,
+  },
+  progressGap: {
+    marginTop: spacing.md,
+  },
+  rowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  successText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.success,
+  },
+  reviewCard: {
+    marginBottom: spacing.sm,
+  },
+  primaryLabel: {
+    fontSize: fontSize.xs,
+    color: '#DDE8FF',
+  },
+  primaryCount: {
+    marginTop: spacing.xs,
+    fontSize: 30,
+    fontWeight: fontWeight.bold,
+    color: colors.white,
+  },
+  primaryHint: {
+    marginTop: 2,
+    fontSize: fontSize.sm,
+    color: '#DDE8FF',
+  },
+  circle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  circleText: {
+    color: colors.white,
+    fontSize: 24,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  quickCard: {
+    flex: 1,
+    minHeight: 124,
+    padding: spacing.lg,
+  },
+  quickIcon: {
+    fontSize: 24,
+    marginBottom: spacing.sm,
+  },
+  quickTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  quickDesc: {
+    marginTop: 2,
+    fontSize: fontSize.xs,
+    color: colors.muted,
+  },
+  label: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+  },
+  bankRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  bankChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceStrong,
+  },
+  bankChipActive: {
+    backgroundColor: colors.primary,
+  },
+  bankText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.muted,
+  },
+  bankTextActive: {
+    color: colors.white,
+  },
+  result: {
+    marginTop: spacing.sm,
+    color: colors.success,
+    fontSize: fontSize.sm,
+  },
+  goalCard: {
+    marginBottom: spacing.md,
+    padding: spacing.lg,
+  },
+  goalTitle: {
+    flex: 1,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.gray900,
+  },
+  goalMeta: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
+  },
 })
