@@ -20,6 +20,9 @@ import Screen from '../components/ui/Screen'
 import SectionHeader from '../components/ui/SectionHeader'
 import TopBar from '../components/ui/TopBar'
 
+// 지원하는 은행/카드사 목록
+// bank_parsers 테이블에 동일한 bank_code가 등록되어 있어야 한다
+
 const BANKS = [
   { label: '국민은행', code: 'kb' },
   { label: '신한은행', code: 'shinhan' },
@@ -33,7 +36,7 @@ export default function HomeScreen() {
   const [selectedBank, setSelectedBank] = useState(BANKS[0].code)
   const [uploading, setUploading] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
-  const { pendingCount } = useTransactions()
+  const { pendingCount, refresh: refreshTransactions } = useTransactions()
   const { totalExpense, budgets, goals } = useDashboard(now.getFullYear(), now.getMonth() + 1)
 
   const monthBudget = useMemo(
@@ -49,29 +52,45 @@ export default function HomeScreen() {
   })
 
   const uploadCsv = async () => {
+    // CSV 파일만 선택하도록 제한
+    // types.csv: Android = ['text/csv', 'text/comma-separated-values'], iOS = 'public.comma-separated-values-text'
     let pickerResult
     try {
-      pickerResult = await pick({ type: [types.allFiles] })
+      pickerResult = await pick({ type: types.csv })
     } catch (e) {
       if (isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED) return
-      throw e
+      // CSV 타입 필터가 기기/파일앱에서 안 될 경우 allFiles로 재시도
+      try {
+        pickerResult = await pick({ type: types.allFiles })
+      } catch (e2) {
+        if (isErrorWithCode(e2) && e2.code === errorCodes.OPERATION_CANCELED) return
+        Alert.alert('오류', '파일 선택에 실패했습니다')
+        return
+      }
     }
 
     const file = pickerResult[0]
+
+    // 파일명 null 방어 — picker가 이름을 못 읽는 기기 대응
+    const safeFileName = file.name ?? `upload_${Date.now()}.csv`
+
+    setLastResult(null)
     setUploading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('로그인이 필요합니다')
 
+      // 1단계: Supabase Storage에 CSV 파일 업로드
       const response = await fetch(file.uri)
       const blob = await response.blob()
-      const storagePath = `${user.id}/${Date.now()}_${file.name}`
+      const storagePath = `${user.id}/${Date.now()}_${safeFileName}`
       const { error: uploadError } = await supabase.storage
         .from('uploads')
         .upload(storagePath, blob, { contentType: 'text/csv' })
 
       if (uploadError) throw uploadError
 
+      // 2단계: raw_data 레코드 생성 (파이프라인 추적용)
       const { data: rawData, error: rawError } = await supabase
         .from('raw_data')
         .insert({
@@ -85,6 +104,8 @@ export default function HomeScreen() {
 
       if (rawError) throw rawError
 
+      // 3단계: parse-csv Edge Function 호출
+      // bank_parsers 테이블에서 bankCode로 컬럼 매핑을 가져온다
       const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-csv', {
         body: {
           rawDataId: rawData.id,
@@ -94,10 +115,16 @@ export default function HomeScreen() {
       })
 
       if (parseError) throw parseError
-      setLastResult(`완료: ${(parseResult as { inserted?: number }).inserted ?? 0}건 처리됨`)
+
+      const inserted = (parseResult as { inserted?: number }).inserted ?? 0
+      setLastResult(`완료: ${inserted}건 처리됨`)
+
+      // 4단계: 거래 목록 갱신 — 검수 대기 카운트 반영
+      await refreshTransactions()
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '업로드 실패'
-      Alert.alert('오류', message)
+      console.error('[CSV 업로드] 오류:', e)
+      Alert.alert('업로드 실패', message)
     } finally {
       setUploading(false)
     }
@@ -161,7 +188,13 @@ export default function HomeScreen() {
           {BANKS.map(bank => (
             <Pressable
               key={bank.code}
-              style={[styles.bankChip, selectedBank === bank.code && styles.bankChipActive]}
+              // 업로드 중에는 은행 변경 불가 — 도중에 bankCode가 바뀌면 파싱 오류
+              disabled={uploading}
+              style={[
+                styles.bankChip,
+                selectedBank === bank.code && styles.bankChipActive,
+                uploading && styles.bankChipDisabled,
+              ]}
               onPress={() => setSelectedBank(bank.code)}
             >
               <Text style={[styles.bankText, selectedBank === bank.code && styles.bankTextActive]}>{bank.label}</Text>
@@ -327,6 +360,9 @@ const styles = StyleSheet.create({
   },
   bankChipActive: {
     backgroundColor: colors.primary,
+  },
+  bankChipDisabled: {
+    opacity: 0.4,
   },
   bankText: {
     fontSize: fontSize.sm,
