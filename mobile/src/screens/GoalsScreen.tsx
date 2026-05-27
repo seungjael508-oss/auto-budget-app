@@ -5,7 +5,8 @@ import {
 } from 'react-native'
 import { useDashboard } from '../hooks/useDashboard'
 import { useBudget } from '../hooks/useBudget'
-import { Budget, Category } from '../types'
+import { useGoal } from '../hooks/useGoal'
+import { Budget, Category, Goal } from '../types'
 import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
 import { formatKRW } from '../lib/format'
 import Card from '../components/ui/Card'
@@ -130,6 +131,158 @@ function BudgetModal({ visible, categories, editing, onSave, onClose }: BudgetMo
   )
 }
 
+// ─── 목표 생성/편집 모달 ────────────────────────────────────────────────────────
+
+interface GoalModalProps {
+  visible: boolean
+  categories: Category[]
+  editing: Goal | null
+  onSave: (params: {
+    title: string
+    categoryId: string | null
+    targetAmount: number
+    period: 'monthly' | 'weekly'
+  }) => Promise<void>
+  onClose: () => void
+}
+
+function GoalModal({ visible, categories, editing, onSave, onClose }: GoalModalProps) {
+  const [title, setTitle] = useState(editing?.title ?? '')
+  // null = 전체 지출, '' = 미선택 상태 없이 기본은 전체 지출
+  const [selectedCatId, setSelectedCatId] = useState<string | null>(editing?.category_id ?? null)
+  const [amountText, setAmountText] = useState(editing ? String(editing.target_amount) : '')
+  const [period, setPeriod] = useState<'monthly' | 'weekly'>(editing?.period ?? 'monthly')
+  const [saving, setSaving] = useState(false)
+
+  // 모달 열릴 때마다 초기값 재설정
+  React.useEffect(() => {
+    if (visible) {
+      setTitle(editing?.title ?? '')
+      setSelectedCatId(editing?.category_id ?? null)
+      setAmountText(editing ? String(editing.target_amount) : '')
+      setPeriod(editing?.period ?? 'monthly')
+    }
+  }, [visible, editing])
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      Alert.alert('알림', '목표 이름을 입력하세요')
+      return
+    }
+    const amount = parseInt(amountText.replace(/,/g, ''), 10)
+    if (!amount || amount <= 0) {
+      Alert.alert('알림', '올바른 목표 금액을 입력하세요')
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave({ title: title.trim(), categoryId: selectedCatId, targetAmount: amount, period })
+      onClose()
+    } catch {
+      Alert.alert('오류', '저장 중 오류가 발생했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAmountChange = (text: string) => {
+    const digits = text.replace(/[^0-9]/g, '')
+    setAmountText(digits ? Number(digits).toLocaleString() : '')
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={s.modalWrapper}
+      >
+        <Pressable style={s.modalDim} onPress={onClose} />
+        <View style={s.modalSheet}>
+          <View style={s.modalHandle} />
+          <Text style={s.modalTitle}>{editing ? '목표 수정' : '목표 추가'}</Text>
+
+          {/* 목표 이름 */}
+          <Text style={s.fieldLabel}>목표 이름</Text>
+          <View style={[s.amountRow, { marginBottom: 0 }]}>
+            <TextInput
+              style={[s.amountInput, { fontSize: fontSize.base }]}
+              value={title}
+              onChangeText={setTitle}
+              placeholder="예: 식비 30만원 이하로"
+              placeholderTextColor={colors.gray400}
+              returnKeyType="next"
+              maxLength={40}
+            />
+          </View>
+
+          {/* 카테고리 선택 */}
+          <Text style={s.fieldLabel}>카테고리 (선택)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.catScroll}>
+            {/* 전체 지출 옵션 */}
+            <Pressable
+              onPress={() => setSelectedCatId(null)}
+              style={[s.catChip, selectedCatId === null && s.catChipActive]}
+            >
+              <Text style={s.catIcon}>📊</Text>
+              <Text style={[s.catName, selectedCatId === null && s.catNameActive]}>전체 지출</Text>
+            </Pressable>
+            {categories.map(cat => {
+              const active = cat.id === selectedCatId
+              return (
+                <Pressable
+                  key={cat.id}
+                  onPress={() => setSelectedCatId(cat.id)}
+                  style={[s.catChip, active && s.catChipActive]}
+                >
+                  <Text style={s.catIcon}>{cat.icon}</Text>
+                  <Text style={[s.catName, active && s.catNameActive]}>{cat.name}</Text>
+                </Pressable>
+              )
+            })}
+          </ScrollView>
+
+          {/* 월간 / 주간 토글 */}
+          <Text style={s.fieldLabel}>기간</Text>
+          <View style={s.periodRow}>
+            {(['monthly', 'weekly'] as const).map(p => (
+              <Pressable
+                key={p}
+                style={[s.periodBtn, period === p && s.periodBtnActive]}
+                onPress={() => setPeriod(p)}
+              >
+                <Text style={[s.periodText, period === p && s.periodTextActive]}>
+                  {p === 'monthly' ? '월간' : '주간'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {/* 목표 금액 */}
+          <Text style={s.fieldLabel}>목표 금액</Text>
+          <View style={s.amountRow}>
+            <TextInput
+              style={s.amountInput}
+              value={amountText}
+              onChangeText={handleAmountChange}
+              keyboardType="numeric"
+              placeholder="예: 300,000"
+              placeholderTextColor={colors.gray400}
+              returnKeyType="done"
+            />
+            <Text style={s.amountUnit}>원 이하</Text>
+          </View>
+
+          {/* 버튼 */}
+          <View style={s.modalActions}>
+            <SecondaryButton label="취소" onPress={onClose} size="md" style={s.actionBtn} />
+            <PrimaryButton label="저장" onPress={handleSave} loading={saving} size="md" style={s.actionBtn} />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  )
+}
+
 // ─── 메인 화면 ─────────────────────────────────────────────────────────────────
 
 export default function GoalsScreen() {
@@ -137,22 +290,33 @@ export default function GoalsScreen() {
   const [year]  = useState(now.getFullYear())
   const [month] = useState(now.getMonth() + 1)
 
-  const { goals, summaries, loading: dashLoading, totalExpense, refresh: refreshDash } = useDashboard(year, month)
+  const { summaries, loading: dashLoading, totalExpense, refresh: refreshDash } = useDashboard(year, month)
   const {
-    budgets, categories, loading: budgetLoading,
+    budgets, categories: budgetCats, loading: budgetLoading,
     createBudget, updateBudget, deleteBudget, refresh: refreshBudgets,
   } = useBudget(year, month)
+  const {
+    goals, categories: goalCats, loading: goalLoading,
+    createGoal, updateGoal, deleteGoal, refresh: refreshGoals,
+  } = useGoal(year, month)
 
-  const [modalVisible, setModalVisible] = useState(false)
+  // 예산 모달
+  const [budgetModalVisible, setBudgetModalVisible] = useState(false)
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
 
-  const loading = dashLoading || budgetLoading
+  // 목표 모달
+  const [goalModalVisible, setGoalModalVisible] = useState(false)
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null)
+
+  const loading = dashLoading || budgetLoading || goalLoading
 
   const handleRefresh = () => {
     refreshDash()
     refreshBudgets()
+    refreshGoals()
   }
 
+  // ── 예산 핸들러
   const handleSaveBudget = async (categoryId: string, amount: number) => {
     if (editingBudget) {
       await updateBudget(editingBudget.id, amount)
@@ -163,18 +327,39 @@ export default function GoalsScreen() {
 
   const handleEditBudget = (budget: Budget) => {
     setEditingBudget(budget)
-    setModalVisible(true)
+    setBudgetModalVisible(true)
   }
 
   const handleDeleteBudget = (budget: Budget) => {
-    const catName = budget.categories?.name ?? '이 예산'
-    Alert.alert('예산 삭제', `${catName} 예산을 삭제할까요?`, [
+    Alert.alert('예산 삭제', `${budget.categories?.name ?? '이 예산'} 예산을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => deleteBudget(budget.id),
-      },
+      { text: '삭제', style: 'destructive', onPress: () => deleteBudget(budget.id) },
+    ])
+  }
+
+  // ── 목표 핸들러
+  const handleSaveGoal = async (params: {
+    title: string
+    categoryId: string | null
+    targetAmount: number
+    period: 'monthly' | 'weekly'
+  }) => {
+    if (editingGoal) {
+      await updateGoal(editingGoal.id, params)
+    } else {
+      await createGoal(params)
+    }
+  }
+
+  const handleEditGoal = (goal: Goal) => {
+    setEditingGoal(goal)
+    setGoalModalVisible(true)
+  }
+
+  const handleDeleteGoal = (goal: Goal) => {
+    Alert.alert('목표 삭제', `"${goal.title}" 목표를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => deleteGoal(goal.id) },
     ])
   }
 
@@ -186,7 +371,7 @@ export default function GoalsScreen() {
     )
   }
 
-  // 목표 진행률 계산
+  // 목표 진행률 계산 (useGoal 데이터 사용)
   const goalItems = goals.map(goal => {
     const spent = goal.category_id === null
       ? totalExpense
@@ -242,8 +427,9 @@ export default function GoalsScreen() {
         {/* 절약 목표 */}
         <SectionHeader title="절약 목표" meta={`${goalItems.length}개`} />
         {goalItems.length === 0 ? (
-          <Card>
+          <Card style={s.emptyCard}>
             <Text style={s.empty}>설정된 목표가 없습니다</Text>
+            <Text style={s.emptySub}>아래 🎯 버튼으로 목표를 추가하세요</Text>
           </Card>
         ) : (
           goalItems.map(goal => (
@@ -276,6 +462,15 @@ export default function GoalsScreen() {
                 current={`${formatKRW(goal.spent)}원 지출`}
                 total={`목표 ${formatKRW(goal.target_amount)}원`}
               />
+              {/* 수정/삭제 */}
+              <View style={s.cardActions}>
+                <Pressable style={s.editBtn} onPress={() => handleEditGoal(goal)}>
+                  <Text style={s.editBtnText}>수정</Text>
+                </Pressable>
+                <Pressable style={s.deleteBtn} onPress={() => handleDeleteGoal(goal)}>
+                  <Text style={s.deleteBtnText}>삭제</Text>
+                </Pressable>
+              </View>
             </Card>
           ))
         )}
@@ -318,26 +513,49 @@ export default function GoalsScreen() {
         <View style={{ height: 88 }} />
       </ScrollView>
 
-      {/* FAB — 예산 추가 */}
-      <Pressable
-        style={({ pressed }) => [s.fab, pressed && s.fabPressed]}
-        onPress={() => {
-          setEditingBudget(null)
-          setModalVisible(true)
-        }}
-      >
-        <Text style={s.fabIcon}>＋</Text>
-      </Pressable>
+      {/* FAB 두 개: 목표(🎯) + 예산(💰) */}
+      <View style={s.fabGroup}>
+        <Pressable
+          style={({ pressed }) => [s.fab, s.fabGoal, pressed && s.fabPressed]}
+          onPress={() => {
+            setEditingGoal(null)
+            setGoalModalVisible(true)
+          }}
+        >
+          <Text style={s.fabIcon}>🎯</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [s.fab, pressed && s.fabPressed]}
+          onPress={() => {
+            setEditingBudget(null)
+            setBudgetModalVisible(true)
+          }}
+        >
+          <Text style={s.fabIcon}>💰</Text>
+        </Pressable>
+      </View>
 
       {/* 예산 생성/편집 모달 */}
       <BudgetModal
-        visible={modalVisible}
-        categories={categories}
+        visible={budgetModalVisible}
+        categories={budgetCats}
         editing={editingBudget}
         onSave={handleSaveBudget}
         onClose={() => {
-          setModalVisible(false)
+          setBudgetModalVisible(false)
           setEditingBudget(null)
+        }}
+      />
+
+      {/* 목표 생성/편집 모달 */}
+      <GoalModal
+        visible={goalModalVisible}
+        categories={goalCats}
+        editing={editingGoal}
+        onSave={handleSaveGoal}
+        onClose={() => {
+          setGoalModalVisible(false)
+          setEditingGoal(null)
         }}
       />
     </>
@@ -384,10 +602,15 @@ const s = StyleSheet.create({
   emptySub:  { fontSize: fontSize.sm, color: colors.gray400, marginTop: 4 },
 
   // FAB
-  fab: {
+  fabGroup: {
     position: 'absolute',
     right: spacing.xl,
     bottom: spacing.xl,
+    flexDirection: 'column',
+    gap: spacing.md,
+    alignItems: 'center',
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: radius.full,
@@ -400,8 +623,17 @@ const s = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 6,
   },
+  fabGoal: { backgroundColor: colors.accent },
   fabPressed: { opacity: 0.85 },
-  fabIcon:    { fontSize: 28, color: colors.white, lineHeight: 32 },
+  fabIcon:    { fontSize: 24 },
+
+  // 카드 내 액션 버튼 행
+  cardActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    justifyContent: 'flex-end',
+  },
 
   // 모달
   modalWrapper: { flex: 1, justifyContent: 'flex-end' },
@@ -477,6 +709,32 @@ const s = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.muted,
     marginLeft: spacing.xs,
+  },
+
+  // 기간 토글
+  periodRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  periodBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  periodBtnActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  periodText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.gray700,
+  },
+  periodTextActive: {
+    color: colors.primary,
   },
 
   // 모달 버튼
