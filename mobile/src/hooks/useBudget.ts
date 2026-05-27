@@ -44,7 +44,7 @@ export function useBudget(year: number, month: number) {
           year,
           month,
         },
-        { onConflict: 'user_id,category_id,year,month,period' },
+        { onConflict: 'user_id,category_id,year,month' },
       )
     if (error) throw error
     await fetchBudgets()
