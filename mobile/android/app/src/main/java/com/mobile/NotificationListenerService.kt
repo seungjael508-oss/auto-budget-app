@@ -19,12 +19,19 @@ class NotificationListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "NotificationListener"
 
-        // MVP 지원 카드사 packageName (확장 시 여기만 추가)
+        // 지원 금융 앱 packageName (확장 시 여기만 추가)
         private val CARD_APP_PACKAGES = setOf(
+            // 카드사
             "com.kbcard.kbkookmincard",   // 국민카드
             "com.shinhancard.smart",       // 신한카드
             "com.samsung.android.spay",    // 삼성카드
             "com.hyundaicard.app",         // 현대카드
+            // 간편결제
+            "com.kakao.talk",              // 카카오페이 (카카오톡 내)
+            "com.kakaopay.app",            // 카카오페이 (단독 앱)
+            "viva.republica.toss",         // 토스
+            "com.nhn.android.search",      // 네이버페이 (네이버 앱 내)
+            "com.nhn.android.naverpay",    // 네이버페이 (단독 앱)
         )
 
         // 거래 알림 판별 키워드
