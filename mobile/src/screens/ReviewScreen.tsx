@@ -110,7 +110,6 @@ export default function ReviewScreen() {
   } = useTransactions()
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
-  const [processing, setProcessing] = useState(false)
 
   const pendingTxs = useMemo(
     () => transactions.filter(item => item.status === 'pending_review'),
@@ -120,27 +119,22 @@ export default function ReviewScreen() {
   const total = pendingTxs.reduce((sum, item) => sum + Math.abs(item.amount), 0)
 
   const handleApprove = async (tx: Transaction) => {
-    setProcessing(true)
+    // optimistic UI: useTransactions에서 즉시 제거
     try {
       await approveTransaction(tx.id)
     } catch {
       Alert.alert('오류', '승인 처리 중 오류가 발생했습니다')
-    } finally {
-      setProcessing(false)
     }
   }
 
   const handleSelectCategory = async (catId: string) => {
     if (!selectedTx) return
     setModalVisible(false)
-    setProcessing(true)
+    setSelectedTx(null)
     try {
       await changeCategory(selectedTx.id, selectedTx.merchant, catId)
     } catch {
       Alert.alert('오류', '카테고리 변경 중 오류가 발생했습니다')
-    } finally {
-      setProcessing(false)
-      setSelectedTx(null)
     }
   }
 
@@ -154,13 +148,9 @@ export default function ReviewScreen() {
       { text: '취소', style: 'cancel' },
       {
         text: '승인',
-        onPress: async () => {
-          setProcessing(true)
-          try {
-            await approveAllHighConfidence()
-          } finally {
-            setProcessing(false)
-          }
+        onPress: () => {
+          // optimistic UI: useTransactions에서 즉시 일괄 제거
+          approveAllHighConfidence()
         },
       },
     ])
@@ -194,12 +184,9 @@ export default function ReviewScreen() {
               label={`신뢰도 80%+ ${highConfidenceCount}건 한 번에 승인`}
               onPress={handleApproveAll}
               size="md"
-              disabled={processing}
             />
           </View>
         ) : null}
-
-        {processing ? <Text style={styles.processing}>처리 중...</Text> : null}
 
         {pendingTxs.length === 0 ? (
           <Card style={styles.doneCard}>
@@ -287,11 +274,6 @@ const styles = StyleSheet.create({
   },
   batchWrap: {
     marginBottom: spacing.xs,
-  },
-  processing: {
-    textAlign: 'center',
-    color: colors.warning,
-    fontSize: fontSize.sm,
   },
   reviewItem: {
     gap: spacing.md,

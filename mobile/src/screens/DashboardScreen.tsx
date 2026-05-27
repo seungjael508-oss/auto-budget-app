@@ -132,17 +132,30 @@ export default function DashboardScreen() {
             <Text style={styles.empty}>설정된 목표가 없습니다.</Text>
           </Card>
         ) : (
-          goals.map(goal => (
-            <Card key={goal.id} style={styles.goalCard}>
-              <View style={styles.rowBetween}>
-                <Text style={styles.goalTitle}>{goal.title}</Text>
-                <Text style={styles.goalRate}>0%</Text>
-              </View>
-              <View style={styles.progressWrap}>
-                <ProgressBar value={0} tone="accent" current="0원" total={`${formatKRW(goal.target_amount)}원`} />
-              </View>
-            </Card>
-          ))
+          goals.map(goal => {
+            // 카테고리별 달성 금액: category_id가 있으면 해당 카테고리 지출, 없으면 전체 지출
+            const currentAmount = goal.category_id
+              ? Math.abs(summaries.find(s => s.category_id === goal.category_id)?.total_amount ?? 0)
+              : totalExpense
+            const rate = Math.min(Math.round((currentAmount / goal.target_amount) * 100), 100)
+
+            return (
+              <Card key={goal.id} style={styles.goalCard}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.goalTitle}>{goal.title}</Text>
+                  <Text style={styles.goalRate}>{rate}%</Text>
+                </View>
+                <View style={styles.progressWrap}>
+                  <ProgressBar
+                    value={rate}
+                    tone="accent"
+                    current={`${formatKRW(currentAmount)}원`}
+                    total={`${formatKRW(goal.target_amount)}원`}
+                  />
+                </View>
+              </Card>
+            )
+          })
         )}
       </Screen>
     </>
