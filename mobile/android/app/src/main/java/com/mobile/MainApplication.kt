@@ -14,8 +14,8 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Share Intent cold-start 텍스트를 JS로 전달하는 NativeModule
           add(ShareIntentPackage())
+          add(NotificationListenerPackage())  // 알림 수집 NativeModule
         },
     )
   }
