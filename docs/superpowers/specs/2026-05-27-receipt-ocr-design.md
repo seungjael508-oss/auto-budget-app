@@ -70,12 +70,26 @@
 ```
 Authorization 헤더 검증
   → supabase.auth.getUser() → user.id
+
+경로 소유권 검증
+  → storage_path가 "receipts/{user.id}/" 로 시작하는지 확인
+  → 불일치 시 403 반환 (다른 사용자 이미지 접근 차단)
+
+Signed URL 생성
+  → 서비스 롤 클라이언트로 storage_path의 signed URL 생성 (만료: 5분)
+
   → Claude Vision API 호출
       프롬프트: "영수증에서 상호명, 합계 금액, 날짜를 JSON으로 추출하세요.
                  추출 불가 항목은 null 반환."
   → 결과 파싱 + confidence 산정
   → { merchant, amount, transaction_at, confidence, raw_text } 반환
 ```
+
+### 클라이언트 업로드 경로 규칙
+```
+receipts/{user_id}/{uuid}.jpg
+```
+Edge Function이 `storage_path.startsWith('receipts/' + user.id + '/')` 로 검증.
 
 ### confidence 기준
 | 조건 | confidence |
@@ -90,7 +104,8 @@ confidence < 0.7 → ReceiptConfirmScreen에서 미확인 필드 빨간색 강�
 | 상황 | 처리 |
 |------|------|
 | 인증 없음 | 401 반환 |
-| 이미지 URL 접근 불가 | 400 반환 |
+| 경로 소유권 불일치 | 403 반환 |
+| 이미지 접근 불가 (signed URL 생성 실패) | 400 반환 |
 | Claude API 실패 | 500 반환 + 에러 로그 |
 | OCR 결과 없음 | 200 반환, 모든 필드 null, confidence 0 |
 
