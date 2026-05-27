@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load local.properties for Supabase BuildConfig fields
+def localProps = new Properties()
+def localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localProps.load(new FileInputStream(localPropsFile))
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -84,6 +91,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+        // Supabase 키를 BuildConfig에 주입 (NotificationListenerService에서 사용)
+        buildConfigField "String", "SUPABASE_URL", "\"${localProps.getProperty('SUPABASE_URL', '')}\""
+        buildConfigField "String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty('SUPABASE_ANON_KEY', '')}\""
     }
     signingConfigs {
         debug {
@@ -105,6 +116,10 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    buildFeatures {
+        buildConfig true
+    }
 }
 
 dependencies {
@@ -116,4 +131,7 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // OkHttp for HTTP calls from NotificationListenerService
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

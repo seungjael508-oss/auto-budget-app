@@ -3,4 +3,5 @@ dist/
 .env
 .env.local
 mobile/.env
+mobile/android/local.properties
 supabase/.temp/
