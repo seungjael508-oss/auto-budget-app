@@ -132,6 +132,9 @@ dependencies {
         implementation jscFlavor
     }
 
-    // OkHttp for HTTP calls from NotificationListenerService
+    // OkHttp for HTTP calls from NotificationListenerService / Workers
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // WorkManager: 백그라운드 주기 작업 (큐 flush, 주간 검수 알림)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
