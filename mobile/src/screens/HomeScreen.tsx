@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  NativeModules,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -36,6 +39,25 @@ export default function HomeScreen() {
   const [selectedBank, setSelectedBank] = useState(BANKS[0].code)
   const [uploading, setUploading] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
+  // 알림 접근 권한 상태 — Android 전용
+  const [notifPermGranted, setNotifPermGranted] = useState<boolean>(true)
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !NativeModules.NotificationListenerModule) return
+
+    const check = async () => {
+      const granted: boolean = await NativeModules.NotificationListenerModule.isPermissionGranted()
+      setNotifPermGranted(granted)
+    }
+    check()
+
+    // 설정에서 돌아올 때 재체크
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') check()
+    })
+    return () => sub.remove()
+  }, [])
+
   const { pendingCount, refresh: refreshTransactions } = useTransactions()
   const { totalExpense, budgets, goals } = useDashboard(now.getFullYear(), now.getMonth() + 1)
 
@@ -134,6 +156,17 @@ export default function HomeScreen() {
     <>
       <TopBar title="자동화가계부" subtitle="사진만 찍고, 주 1회 확인하면 끝" rightLabel="알림" onRightPress={() => {}} />
       <Screen>
+        {!notifPermGranted && Platform.OS === 'android' && (
+          <Pressable
+            style={styles.permBanner}
+            onPress={() => NativeModules.NotificationListenerModule?.openPermissionSettings()}
+          >
+            <Text style={styles.permBannerText}>
+              🔔 카드 알림 자동 수집을 켜면 소비가 자동으로 기록됩니다
+            </Text>
+            <Text style={styles.permBannerAction}>설정 열기 →</Text>
+          </Pressable>
+        )}
         <View style={styles.greeting}>
           <Text style={styles.date}>{todayLabel}</Text>
           <Text style={styles.headline}>이번 주도 잘 흘러가고 있어요</Text>
@@ -390,5 +423,22 @@ const styles = StyleSheet.create({
   goalMeta: {
     fontSize: fontSize.xs,
     color: colors.muted,
+  },
+  permBanner: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  permBannerText: {
+    fontSize: fontSize.sm,
+    color: colors.gray900,
+    lineHeight: 20,
+  },
+  permBannerAction: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
   },
 })
