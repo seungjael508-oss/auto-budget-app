@@ -8,8 +8,10 @@ declare module 'react-native' {
       isPermissionGranted: () => Promise<boolean>
       openPermissionSettings: () => void
       setUserId: (userId: string) => void
+      setUserSession: (userId: string, accessToken: string) => void
       clearUserId: () => void
       getAndClearPendingNotifications: () => Promise<string[]>
+      removePendingNotifications: (processedTexts: string[]) => void
     }
   }
 }

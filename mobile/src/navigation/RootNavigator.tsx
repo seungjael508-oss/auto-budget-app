@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { ActivityIndicator, View } from 'react-native'
+import { ActivityIndicator, NativeModules, Platform, View } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useAuth } from '../hooks/useAuth'
@@ -8,19 +8,24 @@ import LoginScreen from '../screens/LoginScreen'
 import AppTabs from './AppTabs'
 
 const Stack = createNativeStackNavigator()
+const { NotificationListenerModule } = NativeModules
 
 // 로그인 전 쌓인 알림 큐를 parse-text로 일괄 처리
-async function flushNotificationQueue(texts: string[], userId: string) {
+async function flushNotificationQueue(texts: string[], userId: string): Promise<string[]> {
+  const processed: string[] = []
   for (const text of texts) {
     try {
-      await supabase.functions.invoke('parse-text', {
+      const { error } = await supabase.functions.invoke('parse-text', {
         body: { text, userId, source: 'notification' },
       })
+      if (error) throw error
+      processed.push(text)
       console.log('[알림 큐 flush] 처리 완료:', text.slice(0, 30))
     } catch (e) {
       console.error('[알림 큐 flush] 오류:', e)
     }
   }
+  return processed
 }
 
 export default function RootNavigator() {
@@ -30,7 +35,10 @@ export default function RootNavigator() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     console.log(`[알림 큐] 로그인 후 ${texts.length}건 처리`)
-    await flushNotificationQueue(texts, user.id)
+    const processed = await flushNotificationQueue(texts, user.id)
+    if (Platform.OS === 'android' && processed.length > 0) {
+      NotificationListenerModule?.removePendingNotifications?.(processed)
+    }
   }, [])
 
   const { session, loading } = useAuth(handlePendingNotifications)

@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { generateDedupKey } from '../_shared/dedup.ts'
+import { resolveRequestUserId } from '../_shared/auth.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -80,17 +81,19 @@ function parseText(text: string): ParsedTransaction | null {
 }
 
 serve(async (req: Request) => {
-  const { text, userId, source }: RequestBody = await req.json()
+  const { text, userId: requestedUserId, source }: RequestBody = await req.json()
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const auth = await resolveRequestUserId(req, supabase, SUPABASE_SERVICE_ROLE_KEY, requestedUserId)
+  if (auth.error) return auth.error
+  const userId = auth.userId!
 
   // 필수 파라미터 및 source 유효성 검증 (TypeScript 타입은 런타임에 강제되지 않음)
-  if (!text || !userId) {
-    return jsonResponse({ ok: false, error: '필수 파라미터 누락: text, userId' }, 400)
+  if (!text) {
+    return jsonResponse({ ok: false, error: '필수 파라미터 누락: text' }, 400)
   }
   if (!VALID_SOURCES.includes(source)) {
     return jsonResponse({ ok: false, error: `유효하지 않은 source: ${source}` }, 400)
   }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
   // 1. raw_data에 원본 텍스트 저장 (파싱 전 보존)
   const { data: rawData, error: rawError } = await supabase
