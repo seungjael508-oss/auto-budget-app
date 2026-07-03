@@ -13,6 +13,55 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+async function updateGoalProgress(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  period: { year: number; month: number; start: Date; end: Date },
+): Promise<number> {
+  const { data: goals, error: goalsError } = await supabase
+    .from('goals')
+    .select('id, category_id')
+    .eq('user_id', userId)
+    .eq('year', period.year)
+    .eq('month', period.month)
+    .eq('is_active', true)
+
+  if (goalsError) throw new Error(`목표 조회 실패: ${goalsError.message}`)
+  if (!goals?.length) return 0
+
+  let updated = 0
+
+  for (const goal of goals) {
+    let query = supabase
+      .from('transactions')
+      .select('amount')
+      .eq('user_id', userId)
+      .in('status', ['auto_approved', 'reviewed'])
+      .lt('amount', 0)
+      .gte('transaction_at', period.start.toISOString())
+      .lt('transaction_at', period.end.toISOString())
+
+    if (goal.category_id) {
+      query = query.eq('category_id', goal.category_id)
+    }
+
+    const { data: txList, error: txError } = await query
+    if (txError) throw new Error(`목표 거래 조회 실패: ${txError.message}`)
+
+    const currentAmount = (txList ?? []).reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0)
+    const { error: updateError } = await supabase
+      .from('goals')
+      .update({ current_amount: currentAmount })
+      .eq('id', goal.id)
+      .eq('user_id', userId)
+
+    if (updateError) throw new Error(`목표 진행률 갱신 실패: ${updateError.message}`)
+    updated += 1
+  }
+
+  return updated
+}
+
 serve(async (req: Request) => {
   const { userId: requestedUserId, transactionIds }: { userId: string; transactionIds: string[] } = await req.json()
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -51,6 +100,7 @@ serve(async (req: Request) => {
   }
 
   let updated = 0
+  let goalsUpdated = 0
 
   // 2. 변경 거래가 포함된 월 전체를 재계산한다.
   for (const period of months.values()) {
@@ -105,7 +155,14 @@ serve(async (req: Request) => {
       }
     }
     updated += summaries.length
+
+    try {
+      goalsUpdated += await updateGoalProgress(supabase, userId, period)
+    } catch (goalError) {
+      const message = goalError instanceof Error ? goalError.message : '목표 진행률 갱신 실패'
+      return jsonResponse({ ok: false, error: message }, 500)
+    }
   }
 
-  return jsonResponse({ ok: true, updated })
+  return jsonResponse({ ok: true, updated, goalsUpdated })
 })

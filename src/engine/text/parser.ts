@@ -1,4 +1,4 @@
-import { CARD_PATTERNS, GENERIC_AMOUNT_REGEX } from './patterns'
+import { CARD_PATTERNS, GENERIC_AMOUNT_REGEX, NOISE_WORDS_REGEX } from './patterns'
 import { ParseResult, RawTransaction } from '../types'
 
 function parseAmountStr(val: string): number {
@@ -11,22 +11,39 @@ function buildDate(month: string, day: string, hour: string, minute: string): Da
   return new Date(now.getFullYear(), parseInt(month, 10) - 1, parseInt(day, 10), parseInt(hour, 10), parseInt(minute, 10))
 }
 
+function cleanMerchant(value: string): string {
+  return value
+    .replace(NOISE_WORDS_REGEX, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function parseText(text: string): ParseResult {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+
   // 1. 카드사 패턴 우선 매칭 (정확도 높음)
-  for (const { fullRegex } of CARD_PATTERNS) {
-    const m = text.match(fullRegex)
+  for (const pattern of CARD_PATTERNS) {
+    const m = normalized.match(pattern.regex)
     if (m) {
+      const hasDate = pattern.monthIndex && pattern.dayIndex && pattern.hourIndex && pattern.minuteIndex
       const tx: RawTransaction = {
-        merchant: m[5].trim(),
-        amount: -parseAmountStr(m[6]),  // 승인 = 지출(음수)
-        transaction_at: buildDate(m[1], m[2], m[3], m[4]),
+        merchant: cleanMerchant(m[pattern.merchantIndex]),
+        amount: -parseAmountStr(m[pattern.amountIndex]),  // 승인/결제 = 지출(음수)
+        transaction_at: hasDate
+          ? buildDate(
+            m[pattern.monthIndex!],
+            m[pattern.dayIndex!],
+            m[pattern.hourIndex!],
+            m[pattern.minuteIndex!],
+          )
+          : new Date(),
       }
-      return { transaction: tx, confidence: 0.90, needsAiAssist: false }
+      return { transaction: tx, confidence: pattern.confidence, needsAiAssist: pattern.confidence < 0.85 }
     }
   }
 
   // 2. 범용 금액 패턴 fallback
-  const amountMatch = text.match(GENERIC_AMOUNT_REGEX)
+  const amountMatch = normalized.match(GENERIC_AMOUNT_REGEX)
   if (amountMatch) {
     const tx: RawTransaction = {
       merchant: '알 수 없음',
