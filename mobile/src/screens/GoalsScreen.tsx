@@ -55,7 +55,7 @@ function BudgetModal({ visible, categories, editing, onSave, onClose }: BudgetMo
     try {
       await onSave(selectedCatId, amount)
       onClose()
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '저장 중 오류가 발생했습니다')
     } finally {
       setSaving(false)

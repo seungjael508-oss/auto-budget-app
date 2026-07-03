@@ -6,6 +6,8 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import LoginScreen from '../screens/LoginScreen'
 import AppTabs from './AppTabs'
+import ReceiptConfirmScreen from '../screens/ReceiptConfirmScreen'
+import ManualEntryScreen from '../screens/ManualEntryScreen'
 
 const Stack = createNativeStackNavigator()
 const { NotificationListenerModule } = NativeModules
@@ -58,6 +60,16 @@ export default function RootNavigator() {
           ? <Stack.Screen name="App" component={AppTabs} />
           : <Stack.Screen name="Login" component={LoginScreen} />
         }
+        <Stack.Screen
+          name="ReceiptConfirm"
+          component={ReceiptConfirmScreen}
+          options={{ presentation: 'modal', headerShown: false }}
+        />
+        <Stack.Screen
+          name="ManualEntry"
+          component={ManualEntryScreen}
+          options={{ presentation: 'modal', headerShown: false }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   )
