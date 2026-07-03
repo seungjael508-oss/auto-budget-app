@@ -25,22 +25,22 @@
 
 ### 카드사
 
-| 카드사 | 패키지명 |
-|---|---|
+| 카드사   | 패키지명                   |
+| -------- | -------------------------- |
 | 국민카드 | `com.kbcard.kbkookmincard` |
-| 신한카드 | `com.shinhancard.smart` |
+| 신한카드 | `com.shinhancard.smart`    |
 | 삼성카드 | `com.samsung.android.spay` |
-| 현대카드 | `com.hyundaicard.app` |
+| 현대카드 | `com.hyundaicard.app`      |
 
 ### 간편결제
 
-| 앱 | 패키지명 |
-|---|---|
-| 카카오페이 (카카오톡) | `com.kakao.talk` |
-| 카카오페이 (단독) | `com.kakaopay.app` |
-| 토스 | `viva.republica.toss` |
-| 네이버페이 (네이버) | `com.nhn.android.search` |
-| 네이버페이 (단독) | `com.nhn.android.naverpay` |
+| 앱                    | 패키지명                   |
+| --------------------- | -------------------------- |
+| 카카오페이 (카카오톡) | `com.kakao.talk`           |
+| 카카오페이 (단독)     | `com.kakaopay.app`         |
+| 토스                  | `viva.republica.toss`      |
+| 네이버페이 (네이버)   | `com.nhn.android.search`   |
+| 네이버페이 (단독)     | `com.nhn.android.naverpay` |
 
 > 확장 시 `NotificationListenerService.kt`의 `CARD_APP_PACKAGES`에 패키지명만 추가하면 됩니다.
 
@@ -48,14 +48,14 @@
 
 ## 기술 스택
 
-| 영역 | 기술 |
-|---|---|
-| 앱 | React Native 0.85 (Android) |
-| 백엔드 | Supabase (PostgreSQL + Edge Functions) |
-| 알림 수집 | Android NotificationListenerService (Kotlin) |
-| 백그라운드 작업 | WorkManager 2.9 |
-| AI 파싱 | Supabase Edge Function + Claude API |
-| HTTP | OkHttp 4.12 |
+| 영역            | 기술                                         |
+| --------------- | -------------------------------------------- |
+| 앱              | React Native 0.85 (Android)                  |
+| 백엔드          | Supabase (PostgreSQL + Edge Functions)       |
+| 알림 수집       | Android NotificationListenerService (Kotlin) |
+| 백그라운드 작업 | WorkManager 2.9                              |
+| AI 파싱         | Supabase Edge Function + Claude API          |
+| HTTP            | OkHttp 4.12                                  |
 
 ---
 
@@ -115,12 +115,14 @@ cp mobile/.env.example mobile/.env
 ```
 
 `mobile/.env` 입력:
+
 ```
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
 `mobile/android/local.properties` 생성:
+
 ```properties
 sdk.dir=/Users/<username>/Library/Android/sdk
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -144,6 +146,7 @@ npx react-native run-android
 ### 4. 알림 수집 권한 허가
 
 앱 실행 후 목표 탭 → 홈 배너 또는 직접 설정:
+
 ```bash
 adb shell am start -a android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
 ```
