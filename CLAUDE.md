@@ -1,4 +1,4 @@
-# 자동화가계부 Claude 작업 지시서
+clau# 자동화가계부 Claude 작업 지시서
 
 ## 현재 상태
 
@@ -14,7 +14,7 @@
   - classify-transactions
   - update-monthly-summary
   - 테스트 픽스처 + 파이프라인 테스트
-- Plan 2: Android 앱 UI 구현 완료
+- Plan 2: Android 앱 Uqkfh tlkI 구현 완료
   - React Native CLI 앱
   - Supabase 클라이언트
   - 로그인

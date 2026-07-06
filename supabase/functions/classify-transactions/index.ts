@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.27.0'
+import { resolveRequestUserId } from '../_shared/auth.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -26,13 +27,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 serve(async (req: Request) => {
-  const { userId, rawDataId, transactionIds }: ClassifyRequest = await req.json()
-
-  if (!userId) {
-    return jsonResponse({ ok: false, error: 'userId 필수' }, 400)
-  }
-
+  const { userId: requestedUserId, rawDataId, transactionIds }: ClassifyRequest = await req.json()
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const auth = await resolveRequestUserId(req, supabase, SUPABASE_SERVICE_ROLE_KEY, requestedUserId)
+  if (auth.error) return auth.error
+  const userId = auth.userId!
+
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY })
 
   // 1. 분류 대기 거래 조회 (최대 20건 배치)

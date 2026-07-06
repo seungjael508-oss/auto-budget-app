@@ -45,6 +45,8 @@ class FlushPendingNotificationsWorker(
         // userId 없으면 로그인 전 — 건너뜀
         val userId = prefs.getString(NotificationListenerModule.USER_ID_KEY, null)
             ?: return Result.success()
+        val accessToken = prefs.getString(NotificationListenerModule.ACCESS_TOKEN_KEY, null)
+            ?: return Result.success()
 
         val queueJson = prefs.getString(NotificationListenerModule.QUEUE_KEY, "[]") ?: "[]"
         val queue = JSONArray(queueJson)
@@ -57,7 +59,7 @@ class FlushPendingNotificationsWorker(
 
         for (i in 0 until queue.length()) {
             val text = queue.getString(i)
-            if (sendToParseText(text, userId)) {
+            if (sendToParseText(text, userId, accessToken)) {
                 successIndices.add(i)
             } else {
                 anyFailed = true
@@ -77,7 +79,7 @@ class FlushPendingNotificationsWorker(
         return if (anyFailed) Result.retry() else Result.success()
     }
 
-    private fun sendToParseText(text: String, userId: String): Boolean {
+    private fun sendToParseText(text: String, userId: String, accessToken: String): Boolean {
         return try {
             val body = JSONObject().apply {
                 put("text", text)
@@ -87,7 +89,7 @@ class FlushPendingNotificationsWorker(
 
             val request = Request.Builder()
                 .url("${BuildConfig.SUPABASE_URL}/functions/v1/parse-text")
-                .addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+                .addHeader("Authorization", "Bearer $accessToken")
                 .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
                 .post(body)
                 .build()

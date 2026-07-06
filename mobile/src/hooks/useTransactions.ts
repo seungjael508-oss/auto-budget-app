@@ -8,9 +8,10 @@ async function triggerMonthlySummaryUpdate(txIds: string[]): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user || !txIds.length) return
 
-    await supabase.functions.invoke('update-monthly-summary', {
+    const { error } = await supabase.functions.invoke('update-monthly-summary', {
       body: { userId: user.id, transactionIds: txIds },
     })
+    if (error) throw error
   } catch (err) {
     // 집계 실패는 UI를 막지 않음 — 로그만 기록
     console.error('[useTransactions] monthly_summary 갱신 실패:', err)
@@ -59,14 +60,15 @@ export function useTransactions() {
     setTransactions(prev => prev.filter(t => t.id !== txId))
     setPendingCount(prev => Math.max(0, prev - 1))
 
-    await supabase
+    const { error } = await supabase
       .from('transactions')
       .update({ status: 'reviewed' })
       .eq('id', txId)
+    if (error) throw error
 
     // 월간 집계 갱신 + DB 동기화
-    triggerMonthlySummaryUpdate([txId])
-    syncTransactions()
+    await triggerMonthlySummaryUpdate([txId])
+    await syncTransactions()
   }, [syncTransactions])
 
   const changeCategory = useCallback(async (
@@ -83,10 +85,11 @@ export function useTransactions() {
     setPendingCount(prev => Math.max(0, prev - 1))
 
     // 왼쪽 스와이프: 카테고리 수정 후 승인
-    await supabase
+    const { error } = await supabase
       .from('transactions')
       .update({ status: 'reviewed', category_id: newCategoryId })
       .eq('id', txId)
+    if (error) throw error
 
     // 힌트 학습: 동일 merchant 분류 시 Claude 비용 절감
     const { data: existing } = await supabase
@@ -112,8 +115,8 @@ export function useTransactions() {
       }
     }
 
-    triggerMonthlySummaryUpdate([txId])
-    syncTransactions()
+    await triggerMonthlySummaryUpdate([txId])
+    await syncTransactions()
   }, [syncTransactions])
 
   const approveAllHighConfidence = useCallback(async () => {
@@ -129,14 +132,16 @@ export function useTransactions() {
     setPendingCount(prev => Math.max(0, prev - targetIds.length))
 
     // confidence >= 0.80인 pending_review 거래 일괄 승인
-    await supabase
+    const { error } = await supabase
       .from('transactions')
       .update({ status: 'reviewed' })
+      .in('id', targetIds)
       .eq('status', 'pending_review')
       .gte('confidence', 0.80)
+    if (error) throw error
 
-    triggerMonthlySummaryUpdate(targetIds)
-    syncTransactions()
+    await triggerMonthlySummaryUpdate(targetIds)
+    await syncTransactions()
   }, [transactions, syncTransactions])
 
   useEffect(() => {

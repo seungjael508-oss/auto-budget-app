@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Papa from 'https://esm.sh/papaparse@5'
 import { generateDedupKey } from '../_shared/dedup.ts'
+import { resolveRequestUserId } from '../_shared/auth.ts'
 
 // SERVICE_ROLE_KEY는 Edge Function 내부에서만 사용 (클라이언트 노출 금지)
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -39,14 +40,18 @@ function parseAmountStr(val: string | undefined): number {
 }
 
 serve(async (req: Request) => {
-  const { rawDataId, bankCode, userId }: RequestBody = await req.json()
+  const { rawDataId, bankCode, userId: requestedUserId }: RequestBody = await req.json()
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const auth = await resolveRequestUserId(req, supabase, SUPABASE_SERVICE_ROLE_KEY, requestedUserId)
+  if (auth.error) return auth.error
+  const userId = auth.userId!
 
   // 1. raw_data에서 파일 경로 조회
   const { data: rawData, error: rawError } = await supabase
     .from('raw_data')
-    .select('file_path, raw_content')
+    .select('file_path, raw_content, user_id')
     .eq('id', rawDataId)
+    .eq('user_id', userId)
     .single()
 
   if (rawError) {

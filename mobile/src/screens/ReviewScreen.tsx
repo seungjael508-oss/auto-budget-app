@@ -24,11 +24,13 @@ import TopBar from '../components/ui/TopBar'
 function CategoryModal({
   visible,
   categories,
+  currentCategoryId,
   onSelect,
   onClose,
 }: {
   visible: boolean
   categories: Category[]
+  currentCategoryId?: string | null
   onSelect: (catId: string) => void
   onClose: () => void
 }) {
@@ -36,11 +38,21 @@ function CategoryModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalBox}>
-          <Text style={styles.modalTitle}>카테고리 확인</Text>
+          <Text style={styles.modalTitle}>카테고리 선택</Text>
           <View style={styles.categoryGrid}>
             {categories.map(cat => (
-              <Pressable key={cat.id} style={styles.categoryButton} onPress={() => onSelect(cat.id)}>
+              <Pressable
+                key={cat.id}
+                style={[
+                  styles.categoryButton,
+                  currentCategoryId === cat.id && styles.categoryButtonSelected,
+                ]}
+                onPress={() => onSelect(cat.id)}
+              >
                 <CategoryTag name={cat.name} icon={cat.icon} color={cat.color} />
+                {currentCategoryId === cat.id && (
+                  <Text style={styles.currentBadge}>현재</Text>
+                )}
               </Pressable>
             ))}
           </View>
@@ -115,6 +127,12 @@ export default function ReviewScreen() {
     () => transactions.filter(item => item.status === 'pending_review'),
     [transactions],
   )
+  const reviewedCount = useMemo(
+    () => transactions.filter(item => item.status === 'reviewed' || item.status === 'auto_approved').length,
+    [transactions],
+  )
+  const totalCount = transactions.length
+  const progressPct = totalCount > 0 ? Math.round((reviewedCount / totalCount) * 100) : 100
   const highConfidenceCount = pendingTxs.filter(item => (item.confidence ?? 0) >= 0.8).length
   const total = pendingTxs.reduce((sum, item) => sum + Math.abs(item.amount), 0)
 
@@ -167,14 +185,19 @@ export default function ReviewScreen() {
         <Card variant="soft" style={styles.summaryCard}>
           <View style={styles.rowBetween}>
             <Text style={styles.muted}>검수 대기</Text>
-            <Text style={styles.summaryMeta}>{pendingTxs.length}건</Text>
+            <Text style={styles.summaryMeta}>{pendingTxs.length}건 남음</Text>
           </View>
           <View style={styles.totalLine}>
             <Text style={styles.totalAmount}>{formatKRW(total)}</Text>
             <Text style={styles.muted}>원 확인 필요</Text>
           </View>
           <View style={styles.progressWrap}>
-            <ProgressBar value={pendingTxs.length === 0 ? 100 : 0} tone={pendingTxs.length === 0 ? 'success' : 'primary'} />
+            <ProgressBar
+              value={progressPct}
+              tone={progressPct === 100 ? 'success' : 'primary'}
+              current={`${reviewedCount}건 완료`}
+              total={`전체 ${totalCount}건`}
+            />
           </View>
         </Card>
 
@@ -215,6 +238,7 @@ export default function ReviewScreen() {
         <CategoryModal
           visible={modalVisible}
           categories={categories.filter(item => item.is_system)}
+          currentCategoryId={selectedTx?.category_id}
           onSelect={handleSelectCategory}
           onClose={() => {
             setModalVisible(false)
@@ -365,5 +389,25 @@ const styles = StyleSheet.create({
   },
   categoryButton: {
     paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    position: 'relative',
+  },
+  categoryButtonSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  currentBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -4,
+    fontSize: 9,
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 3,
+    borderRadius: 4,
   },
 })

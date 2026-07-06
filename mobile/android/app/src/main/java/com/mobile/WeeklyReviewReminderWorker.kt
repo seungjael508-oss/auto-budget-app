@@ -49,8 +49,10 @@ class WeeklyReviewReminderWorker(
         // 로그인 전이면 알림 없음
         val userId = prefs.getString(NotificationListenerModule.USER_ID_KEY, null)
             ?: return Result.success()
+        val accessToken = prefs.getString(NotificationListenerModule.ACCESS_TOKEN_KEY, null)
+            ?: return Result.success()
 
-        val pendingCount = fetchPendingCount(userId)
+        val pendingCount = fetchPendingCount(userId, accessToken)
         if (pendingCount == null) return Result.retry()   // 네트워크 오류 → 재시도
         if (pendingCount == 0) return Result.success()    // 검수할 거래 없음 → 조용히 종료
 
@@ -59,20 +61,24 @@ class WeeklyReviewReminderWorker(
     }
 
     // Supabase REST API로 pending_review 건수 조회
-    private fun fetchPendingCount(userId: String): Int? {
+    private fun fetchPendingCount(userId: String, accessToken: String): Int? {
         return try {
             val url = "${BuildConfig.SUPABASE_URL}/rest/v1/transactions" +
                 "?status=eq.pending_review&user_id=eq.$userId&select=id"
 
             val request = Request.Builder()
                 .url(url)
-                .addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+                .addHeader("Authorization", "Bearer $accessToken")
                 .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
                 .addHeader("Prefer", "count=exact")
                 .get()
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("WeeklyReminder", "건수 조회 실패: ${response.code}")
+                    return@use null
+                }
                 // Content-Range: 0-9/42 → 42 파싱
                 val contentRange = response.header("Content-Range") ?: return@use 0
                 contentRange.substringAfter("/").trim().toIntOrNull() ?: 0
@@ -122,6 +128,6 @@ class WeeklyReviewReminderWorker(
             .build()
 
         manager.notify(NOTIFICATION_ID, notification)
-        Log.d("WeeklyReminder", "주간 검수 알림 발송: $pendingCount건")
+        Log.d("WeeklyReminder", "주간 검수 알림 발송: ${pendingCount}건")
     }
 }

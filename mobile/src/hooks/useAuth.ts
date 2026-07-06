@@ -12,13 +12,17 @@ export function useAuth(onPendingNotifications?: OnPendingNotifications) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const syncUserIdToNative = useCallback((userId: string | null) => {
+  const syncUserIdToNative = useCallback((session: Session | null) => {
     // Android 전용 — iOS는 NotificationListenerModule 없음
     if (Platform.OS !== 'android' || !NotificationListenerModule) return
 
-    if (userId) {
-      // 로그인: userId 저장 + 로컬 큐 flush
-      NotificationListenerModule.setUserId(userId)
+    if (session?.user?.id && session.access_token) {
+      // 로그인: userId + access token 저장 + 로컬 큐 flush
+      if (NotificationListenerModule.setUserSession) {
+        NotificationListenerModule.setUserSession(session.user.id, session.access_token)
+      } else {
+        NotificationListenerModule.setUserId(session.user.id)
+      }
       NotificationListenerModule.getAndClearPendingNotifications().then(
         (texts: string[]) => {
           if (texts.length > 0 && onPendingNotifications) {
@@ -36,14 +40,14 @@ export function useAuth(onPendingNotifications?: OnPendingNotifications) {
     // 앱 시작 시 저장된 세션 복원
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      syncUserIdToNative(session?.user?.id ?? null)
+      syncUserIdToNative(session)
       setLoading(false)
     })
 
     // 로그인/로그아웃 이벤트 구독
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      syncUserIdToNative(session?.user?.id ?? null)
+      syncUserIdToNative(session)
     })
 
     return () => subscription.unsubscribe()

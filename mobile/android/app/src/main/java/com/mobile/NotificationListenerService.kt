@@ -83,18 +83,24 @@ class NotificationListenerService : NotificationListenerService() {
             NotificationListenerModule.PREFS_NAME, Context.MODE_PRIVATE
         )
         val userId = prefs.getString(NotificationListenerModule.USER_ID_KEY, null)
+        val accessToken = prefs.getString(NotificationListenerModule.ACCESS_TOKEN_KEY, null)
 
-        if (userId == null) {
+        if (userId == null || accessToken == null) {
             saveToQueue(prefs, payload)
-            Log.d(TAG, "userId 없음 — 로컬 큐 저장")
+            Log.d(TAG, "로그인 세션 없음 — 로컬 큐 저장")
             return
         }
 
         // 6. 백그라운드 스레드에서 parse-text 호출 (네트워크 I/O)
-        Thread { sendToParseText(prefs, payload, userId) }.start()
+        Thread { sendToParseText(prefs, payload, userId, accessToken) }.start()
     }
 
-    private fun sendToParseText(prefs: android.content.SharedPreferences, text: String, userId: String) {
+    private fun sendToParseText(
+        prefs: android.content.SharedPreferences,
+        text: String,
+        userId: String,
+        accessToken: String,
+    ) {
         val json = JSONObject().apply {
             put("text", text)
             put("userId", userId)
@@ -103,7 +109,7 @@ class NotificationListenerService : NotificationListenerService() {
         val body = json.toString().toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("${BuildConfig.SUPABASE_URL}/functions/v1/parse-text")
-            .addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+            .addHeader("Authorization", "Bearer $accessToken")
             .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
             .post(body)
             .build()

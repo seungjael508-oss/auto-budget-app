@@ -9,7 +9,10 @@ import {
   StyleSheet,
   Text,
   View,
+  ViewStyle,
 } from 'react-native'
+import AddTransactionModal from '../components/ui/AddTransactionModal'
+import { useReceiptOcr } from '../hooks/useReceiptOcr'
 import { useNavigation } from '@react-navigation/native'
 import { errorCodes, isErrorWithCode, pick, types } from '@react-native-documents/picker'
 import { supabase } from '../lib/supabase'
@@ -39,8 +42,29 @@ export default function HomeScreen() {
   const [selectedBank, setSelectedBank] = useState(BANKS[0].code)
   const [uploading, setUploading] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
   // 알림 접근 권한 상태 — Android 전용
   const [notifPermGranted, setNotifPermGranted] = useState<boolean>(true)
+
+
+  const { captureAndOcr, pickAndOcr, loading: ocrLoading } = useReceiptOcr()
+
+  async function handleCamera() {
+    setShowAddModal(false)
+    const result = await captureAndOcr()
+    if (result) navigation.navigate('ReceiptConfirm', { ocrResult: result })
+  }
+
+  async function handleGallery() {
+    setShowAddModal(false)
+    const result = await pickAndOcr()
+    if (result) navigation.navigate('ReceiptConfirm', { ocrResult: result })
+  }
+
+  function handleManual() {
+    setShowAddModal(false)
+    navigation.navigate('ManualEntry')
+  }
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !NativeModules.NotificationListenerModule) return
@@ -153,7 +177,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <>
+    <View style={styles.root}>
       <TopBar title="자동화가계부" subtitle="사진만 찍고, 주 1회 확인하면 끝" rightLabel="알림" onRightPress={() => {}} />
       <Screen>
         {!notifPermGranted && Platform.OS === 'android' && (
@@ -255,11 +279,32 @@ export default function HomeScreen() {
           </Card>
         ) : null}
       </Screen>
-    </>
+
+      {/* 지출 추가 FAB */}
+      <Pressable
+        style={styles.fab as ViewStyle}
+        onPress={() => setShowAddModal(true)}
+        disabled={ocrLoading}
+      >
+        <Text style={styles.fabText}>{ocrLoading ? '⏳' : '+'}</Text>
+      </Pressable>
+
+      <AddTransactionModal
+        visible={showAddModal}
+        onCamera={handleCamera}
+        onGallery={handleGallery}
+        onManual={handleManual}
+        onClose={() => setShowAddModal(false)}
+      />
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   greeting: {
     marginBottom: spacing.xl,
   },
@@ -440,5 +485,26 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
     color: colors.primary,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: spacing.xl,
+    right: spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  fabText: {
+    fontSize: 28,
+    color: colors.white,
+    lineHeight: 32,
   },
 })
