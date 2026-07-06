@@ -22,6 +22,8 @@ interface OcrResult extends OcrFields {
   raw_text: string
 }
 
+type AnthropicImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -64,6 +66,19 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+function normalizeImageMediaType(value: string | null): AnthropicImageMediaType {
+  const mediaType = value?.split(';')[0]?.trim().toLowerCase()
+  if (
+    mediaType === 'image/jpeg' ||
+    mediaType === 'image/png' ||
+    mediaType === 'image/gif' ||
+    mediaType === 'image/webp'
+  ) {
+    return mediaType
+  }
+  return 'image/jpeg'
+}
+
 function extractJson(text: string): OcrFields | null {
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) return null
@@ -78,13 +93,13 @@ function extractJson(text: string): OcrFields | null {
   }
 }
 
-async function imageToBase64(signedUrl: string): Promise<{ base64: string; mediaType: string }> {
+async function imageToBase64(signedUrl: string): Promise<{ base64: string; mediaType: AnthropicImageMediaType }> {
   const response = await fetch(signedUrl)
   if (!response.ok) {
     throw new Error(`이미지 다운로드 실패: ${response.status}`)
   }
 
-  const mediaType = response.headers.get('content-type')?.split(';')[0] || 'image/jpeg'
+  const mediaType = normalizeImageMediaType(response.headers.get('content-type'))
   const bytes = new Uint8Array(await response.arrayBuffer())
   return { base64: bytesToBase64(bytes), mediaType }
 }

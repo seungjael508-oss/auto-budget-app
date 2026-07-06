@@ -32,6 +32,16 @@ interface TextPattern {
   confidence: number
 }
 
+type SupabaseQueryClient = {
+  from: (table: string) => any
+}
+
+interface WeeklyConnectionRow {
+  connected_sources?: string[] | null
+  connected_count?: number | null
+  streak_count?: number | null
+}
+
 // 카드/페이 알림 패턴: 날짜 위치가 앞/뒤인 케이스를 모두 허용한다.
 const CARD_PATTERNS = [
   {
@@ -163,7 +173,7 @@ function calculateReportAccuracy(sourceCount: number, connectedCount: number): n
 }
 
 async function markWeeklyConnection(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseQueryClient,
   userId: string,
   source: RequestBody['source'],
 ) {
@@ -190,12 +200,9 @@ async function markWeeklyConnection(
     return
   }
 
-  const current = currentRes.data as {
-    connected_sources?: string[] | null
-    connected_count?: number | null
-    streak_count?: number | null
-  } | null
-  const previousStreak = previousRes.data?.streak_count ?? 0
+  const current = currentRes.data as WeeklyConnectionRow | null
+  const previous = previousRes.data as Pick<WeeklyConnectionRow, 'streak_count'> | null
+  const previousStreak = previous?.streak_count ?? 0
   const connectedSources = Array.from(new Set([...(current?.connected_sources ?? []), source]))
   const connectedCount = (current?.connected_count ?? 0) + 1
   const streakCount = current?.streak_count ?? previousStreak + 1

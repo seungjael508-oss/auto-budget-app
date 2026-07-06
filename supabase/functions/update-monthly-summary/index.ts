@@ -5,6 +5,19 @@ import { resolveRequestUserId } from '../_shared/auth.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
+type SupabaseQueryClient = {
+  from: (table: string) => any
+}
+
+interface GoalProgressRow {
+  id: string
+  category_id: string | null
+}
+
+interface TransactionAmountRow {
+  amount: number | string
+}
+
 // JSON 응답 헬퍼
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -14,7 +27,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 async function updateGoalProgress(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseQueryClient,
   userId: string,
   period: { year: number; month: number; start: Date; end: Date },
 ): Promise<number> {
@@ -31,7 +44,7 @@ async function updateGoalProgress(
 
   let updated = 0
 
-  for (const goal of goals) {
+  for (const goal of goals as GoalProgressRow[]) {
     let query = supabase
       .from('transactions')
       .select('amount')
@@ -48,7 +61,8 @@ async function updateGoalProgress(
     const { data: txList, error: txError } = await query
     if (txError) throw new Error(`목표 거래 조회 실패: ${txError.message}`)
 
-    const currentAmount = (txList ?? []).reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0)
+    const currentAmount = ((txList ?? []) as TransactionAmountRow[])
+      .reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0)
     const { error: updateError } = await supabase
       .from('goals')
       .update({ current_amount: currentAmount })
